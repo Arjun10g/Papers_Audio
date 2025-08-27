@@ -1,0 +1,322 @@
+/* Import poppins */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.overall-style{
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    font-family: 'Poppins', sans-serif;
+    background: #fd3a69;
+}
+
+.left{
+    flex-basis: 50%;
+    /* border: 1px solid #fff; */
+    height: 100%;
+    background: rgb(42, 36, 36);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.left > .chapters > h1{
+    color: #fff;
+    text-align: center;
+    padding: 20px 0;
+    font-family: Poppins, sans-serif;
+    font-size: 40px;
+    background: linear-gradient(45deg, #fd3a69, white);
+    color:transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-decoration: underline;
+    text-decoration-color: #fff;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 5px;
+}
+
+.right{
+    flex-basis: 50%;
+    /* border: 1px solid #fff; */
+    height: 100%;
+    background: url('back.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    
+}
+
+:root{
+    --bg: #111317;
+    --card: #171a20cc; /* subtle glass */
+    --accent: #fd3a69; /* matches your earlier color */
+    --text: #e8ebf0;
+    --muted: #9aa3b2;
+    --ring: #94a3b8;
+    --radius: 18px;
+  }
+  
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg: #f6f7fb;
+      --card: #ffffffee;
+      --text: #0f172a;
+      --muted: #566074;
+      --ring: #334155;
+    }
+  }
+  
+  
+  .chapters{
+    max-width: 720px;
+    margin: 32px auto;
+    padding: 20px 22px;
+    background: var(--card);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    color: var(--text);
+  }
+  
+  .chapters h1{
+    margin: 0 0 14px;
+    font: 600 1.25rem/1.2 "Poppins", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    letter-spacing: 0.2px;
+  }
+  
+  .chapters ul{
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  
+  .chapters li + li{
+    margin-top: 10px;
+  }
+  
+  /* Row */
+  .chapters a{
+    display: grid;
+    grid-template-columns: 36px 1fr auto 36px; /* num | title | duration | play */
+    align-items: center;
+    gap: 12px;
+    padding: 14px 14px;
+    text-decoration: none;
+    color: inherit;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease, box-shadow .12s ease;
+  }
+  
+  /* Hover / active feel */
+  .chapters a:hover{
+    transform: translateY(-1px);
+    border-color: rgba(253, 58, 105, 0.55);
+    background: linear-gradient(180deg, rgba(253,58,105,0.08), rgba(255,255,255,0.03));
+    box-shadow: 0 6px 16px rgba(253,58,105,0.18);
+  }
+  
+  /* Keyboard focus */
+  .chapters a:focus-visible{
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(253,58,105,0.35);
+  }
+  
+  /* Active state (JS will toggle .is-active) */
+  .chapters a.is-active{
+    border-color: var(--accent);
+    background: linear-gradient(180deg, rgba(253,58,105,0.12), rgba(253,58,105,0.06));
+  }
+  
+  /* Number badge */
+  .ch-num{
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 0.95rem;
+    border-radius: 10px;
+    color: var(--text);
+    background: rgba(253,58,105,0.18);
+    border: 1px solid rgba(253,58,105,0.5);
+  }
+  
+  /* Title & duration */
+  .ch-title{
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    letter-spacing: .2px;
+  }
+  
+  .ch-duration{
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  
+  /* Play chevron / icon box */
+  .ch-cta{
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    font-size: 0.95rem;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  }
+  
+  .chapters a:hover .ch-cta{
+    transform: translateX(2px);
+    background: rgba(253,58,105,0.14);
+    border-color: rgba(253,58,105,0.5);
+  }
+  
+  /* Compact on mobile */
+  @media (max-width: 560px){
+    .chapters a{
+      grid-template-columns: 30px 1fr 30px;  /* hide duration on small screens */
+    }
+    .ch-duration{ display: none; }
+    .left{
+        flex-basis: 100%;
+        height: auto;
+        /* border-bottom: 1px solid #fff; */
+    }
+  }
+  
+  :root{
+    --bg: #0f1116;
+    --panel: #171a20f0;
+    --text: #e8ebf0;
+    --muted: #a1a9b6;
+    --accent: #fd3a69;
+    --ring: #94a3b8;
+    --radius: 16px;
+  }
+  
+  body[data-theme="light"], .player[data-theme="light"]{
+    --bg: #f6f7fb;
+    --panel: #ffffffee;
+    --text: #111827;
+    --muted: #556070;
+    --accent: #fd3a69;
+    --ring: #334155;
+  }
+  
+/* Pin player bottom-right at 50% viewport width */
+.player{
+    position: fixed;
+    right: 0;              /* anchor to right */
+    bottom: 0;             /* anchor to bottom */
+    left: auto;            /* ensure left is not used */
+    transform: none;       /* cancel previous centering */
+    width: 50vw;           /* always half the viewport width */
+    max-width: none;       /* remove previous min()/caps */
+    margin: 0;
+    /* optional: square edges touching the sides */
+    border-radius: var(--radius) 0 0 0;
+  }
+  
+  /* Optional: add a little inset while respecting safe areas (iOS) */
+  .player{
+    right: max(0px, env(safe-area-inset-right));
+    bottom: max(0px, env(safe-area-inset-bottom));
+  }
+  
+  /* Keep your existing grid + button styles as-is */
+  
+
+  .player{
+    width: min(960px, 94vw);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 14px 40px rgba(0,0,0,0.35);
+    color: var(--text);
+    backdrop-filter: blur(6px);
+    z-index: 999;
+    font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  
+  .pl-left, .pl-right{ display: flex; align-items: center; gap: 8px; }
+  .pl-center{ min-width: 0; }
+  
+  .pl-btn{
+    height: 36px; min-width: 40px; padding: 0 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    color: inherit; font-weight: 600; cursor: pointer;
+  }
+  .pl-primary{ border-color: rgba(253,58,105,0.55); background: rgba(253,58,105,0.20); }
+  
+  .pl-title{
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pl-badge{
+    display: inline-grid; place-items: center;
+    width: 28px; height: 28px; border-radius: 8px; font-weight: 800;
+    background: rgba(253,58,105,0.18); border: 1px solid rgba(253,58,105,0.5);
+  }
+  
+  .pl-bar{
+    position: relative; height: 8px; width: 100%;
+    border-radius: 999px; margin: 8px 0 6px;
+    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.12);
+    overflow: hidden; cursor: pointer;
+  }
+  .pl-fill{ height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #ff6a89); }
+  
+  .pl-times{ display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; }
+  
+  .pl-select{
+    height: 36px; border-radius: 10px; padding: 0 10px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06); color: inherit;
+  }
+  
+  .pl-volume{ width: 120px; accent-color: var(--accent); }
+  
+  .chapters a.is-active{
+    border-color: var(--accent) !important;
+    background: linear-gradient(180deg, rgba(253,58,105,0.12), rgba(253,58,105,0.05)) !important;
+  }
+  
+  /* Mobile */
+  @media (max-width: 640px){
+    .player{
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .pl-right{ justify-content: space-between; }
+    .right{
+        flex-basis: 100%;
+        height: auto;
+        background: url('https://i.ebayimg.com/images/g/gRcAAOSwe6xn9cIB/s-l400.png');
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+    }
+  }
+  
