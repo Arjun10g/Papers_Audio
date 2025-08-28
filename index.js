@@ -1,7 +1,7 @@
 (() => {
   // ========= CONFIG =========
   // Backgrounds per index (0 -> back.png, 1 -> back2.png, etc.)
-  const BACKS   = ["back.png", "back2.png"];
+  const BACKS   = ["back.png", "back2.png", "back3.png"]; // add more or fewer as desired
   const BG_BASE = ""; // e.g., "img/" if your images live in /img
   // =========================
 
