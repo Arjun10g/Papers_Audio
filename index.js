@@ -1,7 +1,7 @@
 (() => {
   // ========= CONFIG =========
   // Backgrounds per index (0 -> back.png, 1 -> back2.png, etc.)
-  const BACKS   = ["back.png", "back2.png", "back3.png", 'back4.png', 'back5.png', 'back3.png']; // add more or fewer as desired
+  const BACKS   = ["back.png", "back2.png", "back3.png", 'back4.png', 'back5.png', 'back3.png', 'https://towardsdatascience.com/wp-content/uploads/2023/10/1bXlp7LVAPhIay-Pk0MxdlA.png']; // add more or fewer as desired
   const BG_BASE = ""; // e.g., "img/" if your images live in /img
   // =========================
 
