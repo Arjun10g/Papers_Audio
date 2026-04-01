@@ -55,7 +55,7 @@ body[data-theme="light"],
 }
 
 .right {
-  background: url('back.png') center / contain no-repeat;
+  background: #111 center / cover no-repeat;
 }
 
 /* ── Chapters card ── */

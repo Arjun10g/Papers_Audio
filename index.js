@@ -1,5 +1,16 @@
 (() => {
-  const BACKS   = ["back.png", "back2.png", "back3.png", "back4.png", "back5.png", "back3.png", "https://towardsdatascience.com/wp-content/uploads/2023/10/1bXlp7LVAPhIay-Pk0MxdlA.png"];
+  const BACKS   = [
+    "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=1920&q=80",  // Splines
+    "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",  // ML
+    "https://images.unsplash.com/photo-1545987796-200677ee1011?w=1920&q=80",     // Non-Linearity
+    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1920&q=80",     // Longitudinal
+    "https://images.unsplash.com/photo-1509228468518-180dd4864904?w=1920&q=80",  // Spline Interpretation
+    "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=1920&q=80",  // Trees
+    "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=1920&q=80",     // SVM
+    "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1920&q=80",  // Neural Networks
+    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1920&q=80",  // Rashomon Effect
+    "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?w=1920&q=80",  // Rashomon Analysis
+  ];
   const BG_BASE = "";
 
   const $  = s => document.querySelector(s);
@@ -53,7 +64,7 @@
   function setBackgroundForIndex(i) {
     const bg = BACKS[i] || BACKS[0];
     rightPane.style.backgroundImage = `url('${BG_BASE}${bg}')`;
-    rightPane.style.backgroundSize = 'contain';
+    rightPane.style.backgroundSize = 'cover';
     rightPane.style.backgroundRepeat = 'no-repeat';
     rightPane.style.backgroundPosition = 'center';
   }
