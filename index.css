@@ -318,14 +318,12 @@ body[data-theme="light"],
   }
 
   .left {
-    flex: none;
+    flex: 1;
     height: auto;
-    max-height: 50vh;
   }
 
   .right {
-    flex: 1;
-    background: url('https://i.ebayimg.com/images/g/gRcAAOSwe6xn9cIB/s-l400.png') center / cover no-repeat;
+    display: none;
   }
 
   .chapters a {
