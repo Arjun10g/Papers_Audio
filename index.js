@@ -10,6 +10,7 @@
     "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1920&q=80",  // Neural Networks
     "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1920&q=80",  // Rashomon Effect
     "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?w=1920&q=80",  // Rashomon Analysis
+    "https://images.unsplash.com/photo-1527474305487-b87b222841cc?w=1920&q=80",  // Boosting/Ensemble
   ];
   const BG_BASE = "";
 
