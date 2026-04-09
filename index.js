@@ -11,6 +11,7 @@
     "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1920&q=80",  // Rashomon Effect
     "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?w=1920&q=80",  // Rashomon Analysis
     "https://images.unsplash.com/photo-1527474305487-b87b222841cc?w=1920&q=80",  // Boosting/Ensemble
+    "https://images.unsplash.com/photo-1518186285589-2f7649de83e0?w=1920&q=80",  // Decomposed Tree
   ];
   const BG_BASE = "";
 
