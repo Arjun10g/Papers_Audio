@@ -13,6 +13,7 @@
     "https://images.unsplash.com/photo-1527474305487-b87b222841cc?w=1920&q=80",  // Boosting/Ensemble
     "https://images.unsplash.com/photo-1518186285589-2f7649de83e0?w=1920&q=80",  // Decomposed Tree
     "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",  // Transformers/LLMs
+    "https://images.unsplash.com/photo-1639322537228-f710d846310a?w=1920&q=80",  // Embedders
   ];
   const BG_BASE = "";
 
