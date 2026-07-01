@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/Observer.min.js" integrity="sha512-7xTD1meeGGoAzwZKA0Z8YelV3qAvRltuwACWXpnxtneF7VAMztOTAi3t4laVSaE4Znq4LMPeGUIYWEvKEk5r3Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/Draggable.min.js" integrity="sha512-S6SXKUZ11xkCoD/UuhdXG4B4iiCXng+xW2KCx0lgfQqmdqtjqGgm4WChdYIhO1F/CmH21vnkSUvPEgXNgDwkjg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="index.js" defer></script>
 </head>
 <body>
@@ -30,6 +31,10 @@
     <div class="left">
       <div class="chapters">
         <h1>Chapters</h1>
+        <div class="ch-search">
+          <input id="ch-search" type="search" placeholder="Search chapters…" aria-label="Search chapters" autocomplete="off">
+          <span id="ch-search-count" class="ch-search-count"></span>
+        </div>
         <ul>
           <!-- First paper -->
           <li>
@@ -129,7 +134,7 @@
           </li>
           <!-- Thirteenth Paper -->
           <li>
-            <a href="#chapter-transformers" data-src="transformer_combined.mp3">
+            <a href="#chapter-transformers" data-src="transformer_combined.mp3" data-doc="readable_docs/transformer_explainer.md">
               <span class="ch-num">13</span>
               <span class="ch-title">Transformers & LLM Design Decisions</span>
               <span class="ch-cta" aria-hidden="true">▶</span>
@@ -137,7 +142,7 @@
           </li>
           <!-- Fourteenth Paper -->
           <li>
-            <a href="#chapter-embedders" data-src="embedder_combined.mp3">
+            <a href="#chapter-embedders" data-src="embedder_combined.mp3" data-doc="readable_docs/embedder_training.md">
               <span class="ch-num">14</span>
               <span class="ch-title">How Embedder Models Are Trained</span>
               <span class="ch-cta" aria-hidden="true">▶</span>
@@ -145,10 +150,18 @@
           </li>
           <!-- Fifteenth Paper -->
           <li>
-            <a href="#chapter-recurrent-depth" data-src="recurrent_depth_combined.mp3">
+            <a href="#chapter-recurrent-depth" data-src="recurrent_depth_combined.mp3" data-doc="recurrent-depth-models-lecture.md">
               <span class="ch-num">15</span>
               <span class="ch-title">Thinking in the Dark: Recurrent Depth Models</span>
               <span class="ch-cta" aria-hidden="true">▶</span>
+            </a>
+          </li>
+          <!-- Sixteenth Paper -->
+          <li>
+            <a href="#chapter-hardware-ouro" data-doc="hardware-ouro-lecture.md">
+              <span class="ch-num">16</span>
+              <span class="ch-title">Making Ouro Fast: Hardware &amp; Kernel Optimization</span>
+              <span class="ch-cta" aria-hidden="true">▤</span>
             </a>
           </li>
         </ul>
@@ -162,9 +175,11 @@
       <!-- Custom sticky player -->
       <div class="player" data-theme="dark" role="region" aria-label="Audiobook player">
         <div class="pl-left">
-          <button id="pl-prev" class="pl-btn" aria-label="Previous chapter">⟸</button>
-          <button id="pl-toggle" class="pl-btn pl-primary" aria-label="Play/Pause">▶</button>
-          <button id="pl-next" class="pl-btn" aria-label="Next chapter">⟹</button>
+          <button id="pl-prev" class="pl-btn" aria-label="Previous chapter" title="Previous chapter (Shift+←)">⟸</button>
+          <button id="pl-back" class="pl-btn" aria-label="Back 15 seconds" title="Back 15s (←)">«15</button>
+          <button id="pl-toggle" class="pl-btn pl-primary" aria-label="Play/Pause" title="Play / Pause (Space)">▶</button>
+          <button id="pl-fwd" class="pl-btn" aria-label="Forward 15 seconds" title="Forward 15s (→)">15»</button>
+          <button id="pl-next" class="pl-btn" aria-label="Next chapter" title="Next chapter (Shift+→)">⟹</button>
         </div>
 
         <div class="pl-center">
@@ -174,17 +189,20 @@
           </div>
 
           <div class="pl-bar" id="pl-bar" aria-label="Seek">
+            <div class="pl-buffered" id="pl-buffered" style="width:0%"></div>
             <div class="pl-fill" id="pl-fill" style="width:0%"></div>
           </div>
 
           <div class="pl-times">
             <span id="pl-cur">00:00</span>
+            <span id="pl-remain" class="pl-remain">-00:00</span>
             <span id="pl-dur">00:00</span>
           </div>
         </div>
 
         <div class="pl-right">
-          <select id="pl-rate" class="pl-select" aria-label="Playback rate">
+          <button id="pl-read" class="pl-btn" aria-label="Toggle transcript" title="Read transcript (R)">Read</button>
+          <select id="pl-rate" class="pl-select" aria-label="Playback rate" title="Playback speed ([ / ])">
             <option value="0.8">0.8×</option>
             <option value="1" selected>1×</option>
             <option value="1.25">1.25×</option>
@@ -192,10 +210,56 @@
             <option value="1.75">1.75×</option>
             <option value="2">2×</option>
           </select>
+          <select id="pl-sleep" class="pl-select" aria-label="Sleep timer" title="Sleep timer">
+            <option value="0" selected>☾ Off</option>
+            <option value="end">End of chapter</option>
+            <option value="300">5 min</option>
+            <option value="600">10 min</option>
+            <option value="900">15 min</option>
+            <option value="1800">30 min</option>
+            <option value="3600">60 min</option>
+          </select>
           <input id="pl-volume" class="pl-volume" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume">
-          <button id="pl-theme" class="pl-btn" aria-label="Toggle theme">☼</button>
+          <button id="pl-theme" class="pl-btn" aria-label="Toggle theme" title="Toggle light/dark">☼</button>
+          <button id="pl-help" class="pl-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Reading pane / transcript -->
+  <div class="reader" id="reader" data-open="false" aria-hidden="true">
+    <div class="reader-head">
+      <span class="reader-title" id="reader-title">Transcript</span>
+      <div class="reader-tools">
+        <button id="reader-font-dn" class="pl-btn" aria-label="Smaller text">A−</button>
+        <button id="reader-font-up" class="pl-btn" aria-label="Larger text">A+</button>
+        <button id="reader-close" class="pl-btn" aria-label="Close reader">✕</button>
+      </div>
+    </div>
+    <article class="reader-body" id="reader-body"></article>
+  </div>
+
+  <!-- Keyboard shortcut help overlay -->
+  <div class="help-overlay" id="help-overlay" data-open="false" aria-hidden="true">
+    <div class="help-card" role="dialog" aria-label="Keyboard shortcuts">
+      <div class="help-head">
+        <h2>Keyboard shortcuts</h2>
+        <button id="help-close" class="pl-btn" aria-label="Close">✕</button>
+      </div>
+      <ul class="help-list">
+        <li><kbd>Space</kbd><span>Play / pause</span></li>
+        <li><kbd>←</kbd> <kbd>→</kbd><span>Seek 15 seconds</span></li>
+        <li><kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd><span>Previous / next chapter</span></li>
+        <li><kbd>↑</kbd> <kbd>↓</kbd><span>Volume</span></li>
+        <li><kbd>[</kbd> <kbd>]</kbd><span>Slower / faster</span></li>
+        <li><kbd>0</kbd>–<kbd>9</kbd><span>Jump to 0%–90%</span></li>
+        <li><kbd>M</kbd><span>Mute</span></li>
+        <li><kbd>R</kbd><span>Toggle transcript</span></li>
+        <li><kbd>T</kbd><span>Toggle theme</span></li>
+        <li><kbd>/</kbd><span>Search chapters</span></li>
+        <li><kbd>?</kbd><span>This help</span></li>
+      </ul>
     </div>
   </div>
 </body>
