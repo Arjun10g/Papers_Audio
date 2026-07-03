@@ -1,6 +1,8 @@
 # Making Ouro Fast
+
 ### A technical lecture on optimizing a recurrent-depth model for GPU inference
-*Approx. 20–25 minutes spoken. Written to be listened to — the numbers and the reasoning are spoken aloud rather than rendered in tables, so it reads cleanly through a text-to-speech engine. A hardware companion to "Thinking in the Dark": that lecture is about why recurrent-depth models think the way they do; this one is about making them run fast without changing a single answer.*
+
+*Approx. 30–35 minutes spoken. Written to be listened to — the numbers and the reasoning are spoken aloud rather than rendered in tables, so it reads cleanly through a text-to-speech engine. A hardware companion to "Thinking in the Dark": that lecture is about why recurrent-depth models think the way they do; this one is about making them run fast without changing a single answer.*
 
 ---
 
@@ -68,7 +70,7 @@ Think about what that tells you. The profitable place to cut is the per-decode-s
 
 ## Part five — the exact optimizations, one at a time
 
-The plan lists the exact optimizations in a deliberate order: first a flat cache, then packed projections, then fused normalization, then CUDA graphs, and finally, still ahead of us, an exact paged cache. Let me tell you the story of each, because each one taught us something.
+The plan lists the exact optimizations in a deliberate order: first a flat cache, then packed projections, then fused normalization, then CUDA graphs, and finally an exact paged cache — which we have now built, and then fused with the graphs to unlock the biggest decode win yet. Let me tell you the story of each, because each one taught us something.
 
 ### The flat cache
 
@@ -114,9 +116,15 @@ Third, an advancing multi-token chain. Rather than one token, we generate a shor
 
 Fourth, we refactored that prototype out of the benchmark and into a real, reusable generation helper, with proper prompt-length and output-length bucket metadata. On the bucket we tested, this reached about three-point-seven times faster on decode. This rung also caught a measurement bug in ourselves — the graph timing had accidentally been including a reference check, which we corrected by snapshotting the replay time before the check runs. Worth saying out loud: measuring honestly includes catching your own measurement mistakes.
 
-And the fifth rung, which is in progress right now, extends that single bucket into a sweep across many prompt and output lengths, so we can study how the one-time cost of capturing a graph gets amortized as the output grows.
+And the fifth rung extended that single bucket into a sweep across many prompt and output lengths, so we could study how the one-time cost of capturing a graph gets amortized as the output grows.
 
-So the summary on CUDA graphs: it is the largest exact decode win we have, somewhere between two-and-a-half and three-point-seven times, but it is bucketed and it is fragile. Static shapes only, no-padding masks only, and right now, one captured graph per decode position. A single reusable graph with a dynamically driven cache-write offset is still unproven — and that is precisely the open research edge.
+So the summary on CUDA graphs, as of that stage: the largest exact decode win we had, somewhere between two-and-a-half and three-point-seven times, but bucketed and fragile. Static shapes only, no-padding masks only, and one captured graph *per decode position*. A single reusable graph, with a cache-write offset driven by a tensor, was still unproven — and that was precisely the open research edge. Which brings us to the piece that closed it.
+
+### The paged cache, and the reusable graph it unlocked
+
+The last exact optimization on the list was the paged cache. Instead of one giant preallocated block, store the memory in fixed-size pages, like the pages of a real book, tracked by a little index that says which page holds which position. On its own this is about flexibility — it makes variable lengths and batching far cleaner. We built it, we gave it a proper full-model exactness gate against the baseline, and it passed at exactly zero difference. Worth being honest, though: in plain step-by-step decoding the paged cache is currently *slower* than the baseline, just as the flat cache was at first. Exact, but not yet a speed win by itself.
+
+The payoff is what the pages unlock. Because each page sits at a fixed address, you can finally record **one** graph and, between replays, just point it at the next page by writing a couple of small position tensors — instead of recording a separate graph for every position. We wired the paged cache into the graph path and added exactly that mode. It captures a single graph, replays it down the chain by updating token and position tensors, and it matches the plain version at zero difference, about three-and-a-half times faster than eager. One capture instead of many. And a bonus fell out: the all-ones attention mask that used to crash graph capture is, on these no-padding buckets, equivalent to having no mask at all — so routing it through the no-mask path made it graph-safe. Two of the open edges, closed in one phase.
 
 ---
 
@@ -124,36 +132,72 @@ So the summary on CUDA graphs: it is the largest exact decode win we have, somew
 
 Let me give you the scoreboard in plain words. Every phase I'm about to name cleared the exactness bar unless I say otherwise.
 
-The benchmark harness and the baseline matrix are done — and they are what told us the loop depth is the enemy. The flat preallocated cache is done and exact; it took the concatenation calls from fourteen hundred and forty down to zero, and its performance was tuned over several follow-on phases. The packed query-key-value and feed-forward projections are done and exact, buying about seven percent on decode at the cost of some extra memory from staying reversible. The normalization work is done, with the framework-math version exact and the faster Triton version deliberately held back behind a quality gate. And the CUDA graph decode replay is done and exact on no-padding buckets, worth somewhere from two-and-a-half to three-point-seven times on decode. The one piece still moving is the bucket sweep on top of the graph work.
+The benchmark harness and the baseline matrix are done — and they are what told us the loop depth is the enemy. The flat preallocated cache is done and exact; it took the concatenation calls from fourteen hundred and forty down to zero, and its performance was tuned over several follow-on phases. The packed query-key-value and feed-forward projections are done and exact, buying about seven percent on decode; the extra memory they used to cost from staying reversible has since been cleaned up, so the packed path is memory-neutral by default and still rebuilds the originals on rollback. The normalization work is done, with the framework-math version exact and the faster Triton version deliberately held back behind a quality gate. The CUDA graph decode replay is done and exact on no-padding buckets, worth somewhere from two-and-a-half to three-point-seven times. And the paged cache is now done and exact too — with a full-model gate that passed at zero difference — and, most importantly, fused with the graphs to give a single reusable recording that runs about three-and-a-half times faster than eager. That completes the exact roadmap. Every landed optimization matches the original bit-for-bit, and at that point the local test suite stood at a hundred and one passing — it has since grown well past two hundred as the frontier work in the coming parts landed.
 
 A few standing decisions anchor all of this. Exact behavior comes before any kernel work or any approximate shortcut. The cache math is always the loop steps times the layer count. Rented machines are always bounded and always torn down immediately. And we pin the framework versions so that a run today is comparable to a run last week.
 
 ---
 
-## Part seven — what comes next
+## Part seven — a surprise about what "exact" really has to mean
 
-So where does the work go from here? Let me lay out the road.
+With the exact roadmap essentially complete, we opened the door we'd kept shut on purpose: the approximate frontier. And the very first thing we did there was interrogate our own central rule.
 
-The immediate work is finishing the CUDA graph story. That means completing the bucket sweep with repeated runs, so we can quantify how the capture cost amortizes over longer outputs. It means proper replay-only profiling — traces that cleanly separate the pure graph-launch time from the token-feedback and the device-to-device copies, because our current profiler numbers still fold in some setup overhead. It means the hard one: replacing one-graph-per-position with a single reusable graph whose cache-write offset is driven by a tensor, which is still unproven. And it means making the padded-mask path safe for capture, so that batched, padded decoding can also use graphs, not just the clean no-padding case.
+We had been treating "not bit-exact" as "disqualified." But step back and ask the honest question. When a faster kernel produces a number that differs in the eighth decimal place, is that a *worse* answer — or just a *different, equally good* one? We had been assuming the former. So we built a probe to actually measure it, and pointed it at the two inexact things we had on hand: the faster Triton normalization, and the occasional rounding flips inside the parallel decoder we'll get to in a moment.
 
-After that, there is one more exact optimization on the list: an exact paged cache, extending the flat cache toward a block-structured layout.
+The results were clarifying. On a corpus of text, perplexity — the standard measure of how well the model predicts — barely moved. A quarter of one percent, sitting inside the noise, and if anything slightly *better*. The full probability distributions the two versions produced were nearly identical: a Kullback-Leibler divergence of eight ten-thousandths of a nat, which is to say, almost nothing. On open-ended greedy generation, the exact and the inexact versions produced byte-for-byte identical text. And the parallel decoder's occasional flipped token never once changed a final math answer across the set we tried.
 
-And then, and only then, we open the door we have kept shut on purpose: the approximate, quality-gated frontier. That is where we resolve whether the faster Triton normalization can be made acceptable with broader testing and a tolerance gate. It is where residual fusion gets a proper decoder-layer integration test. It is where quantization experiments live. And it is where the biggest potential payoff sits: efficient parallel sampling, a way of producing several tokens at once instead of strictly one at a time. That one is deliberately gated until the exact baseline, the flat cache, at least three exact kernel wins, and a clean exact rollback report are all in place. The default fallback for it is always plain, exact, one-token-at-a-time generation.
-
-There are risks we carry openly. Every optimized path has to keep re-proving its exactness against the baseline. The faster normalization and the residual fusion are not yet exact or not yet fully integrated. The CUDA graphs are validated only on the clean no-padding case. And serving through the big inference engines, with their trust-remote-code and fixed-loop-count requirements, needs its own separate baseline before we can claim anything there.
+So the discipline matured, and this is the important beat of the whole second half. Bit-exactness was only ever a *proxy* for the thing we actually care about, which is that the quality didn't change. And it turns out to be an over-strict proxy. The honest gate is not "are the bits identical," it is "did the quality measurably degrade" — measured on perplexity and task accuracy, not assumed from a logit difference. This did not loosen the rule. It sharpened it. We could now promote a numerically-inexact optimization if, and only if, we could *prove* it costs nothing that matters. Hold onto that, because it is the license for everything that follows.
 
 ---
 
-## Recap, in five breaths
+## Part eight — emitting more than one token per expensive loop
+
+Here is the single biggest idea in the second half of the work. Ouro pays its loop tax once per token. So the question that dominates everything is: could we emit *several* tokens per expensive forward pass?
+
+The technique is called speculative decoding, and the trick is beautiful. You cheaply *guess* a few future tokens, then *verify* all of them in one full-depth forward pass, and you keep the longest run that matches what plain greedy decoding would have produced. Because the verification is full-depth, every token you emit is exactly the token greedy would have emitted. You get the parallelism for free, in exact arithmetic. The only thing that changes between methods is where the cheap guess comes from.
+
+Our first guess source was prompt-lookup. When the model is about to repeat something already in its context — a summary quoting its passage, code echoing a function it defined earlier — you can just copy the continuation from where that phrase appeared before, and verify it. On grounded, repetitive text this was a genuine win, up to three-and-a-half times faster. But on generic, open-ended text, where nothing repeats, it collapsed back to roughly one times. No repetition, nothing to copy.
+
+So we added a second guess source that doesn't need repetition at all: Jacobi decoding, sometimes called lookahead. Instead of copying, it guesses a whole window of future tokens and refines them all in parallel, iterating toward the fixed point that greedy would eventually reach. On a factual prompt it hit three-point-two times, right where prompt-lookup had managed barely more than one. And here is the elegant part: the two methods are complementary. Prompt-lookup wins when the output copies the context; Jacobi wins when the output is predictable but not copied. So we fused them into a single decoder that decides, every round, which strategy is actually paying off — it measures tokens-per-forward and leans into whichever arm is winning, wasting no work on the other. That adaptive decoder beats a simpler router that just picks one method up front and commits. Neither, honestly, quite reaches the theoretical best-of-both, because any adaptation costs a little to run — but the online version gets closest.
+
+We also chased the obvious compounding idea. Prompt-lookup spends its time in a *wide* verify forward, so could we make that forward itself cheaper, with packed matrix multiplies and a recorded CUDA graph? Packing helped a little, for free. But the graph wants a constant shape, and fixing the verify block to a constant width padded it wider than it needed to be, which roughly ate the packing gain. And the graph itself demands the special graph-safe paged cache, not the simpler flat one — because the flat cache, deep in its bookkeeping, briefly copies a length back from the GPU to the CPU, and a graph capture forbids exactly that. So that particular multiplier turned out to be real but scoped: a concrete piece of future plumbing, and we wrote down precisely why it's blocked and what unblocks it. Honest dead-ends are results too.
+
+---
+
+## Part nine — teaching Ouro to speculate on its own depth
+
+Now the most Ouro-native version of the whole idea, and the one that pays off biggest. Ouro loops its layers four times. So ask: what if a *shallower* loop — just one or two passes — is a good enough *draft* of what the full four passes would eventually say?
+
+That's depth-speculative decoding. You draft cheaply at low loop depth, verify at full depth, and keep the matches. On the real two-point-six-billion Ouro, drafting at a single loop step and verifying at four ran nearly twice as fast — one-point-nine times — and, crucially, the perplexity did not move: zero percent median change. The emitted tokens were not always bit-identical to the full-depth run; about five out of eight matched exactly. But the quality-first gate we had earned back in Part seven is exactly what gave us permission here. As long as the perplexity holds, a token that differs but is equally good is allowed.
+
+So the promotion rule became perplexity-first. Block a route only if it is both faster *and* measurably worse on perplexity. On that basis, the router shipped speculation on most workloads and held back only one — code generation — where the shallow draft genuinely regressed perplexity, by a little under two percent, just enough to trip the gate. That is the mature form of the discipline in action: not "is it identical," but "is it faster without being worse," proven case by case.
+
+---
+
+## Part ten — a small looped model against the giants
+
+Which brings us to the comparison we are running as I record this, and to the paper's central, audacious claim: a two-point-six-billion *looped* model matching or beating eight-billion dense models on reasoning. We wanted to see that on our own hardware — and, just as importantly, to price it.
+
+So we built a benchmark suite that stands four models side by side: our optimized Ouro-2.6B, the raw Ouro-2.6B, a thirty-billion-parameter Qwen mixture-of-experts, and an eight-billion Llama. Across three tasks — grade-school math, broad knowledge recall, and science reasoning — each run both plainly and with chain-of-thought, and for Ouro across one, two, and four loops. And through all of it we measure the hardware story: peak memory, tokens per second, time to first token, and the inter-token latency.
+
+Even the tiny validation run made the trade vivid. Ouro-2.6B lives in about five gigabytes of memory. The Llama needs fifteen. The Qwen mixture needs fifty-seven — eleven times Ouro's footprint. Our exact optimizations hand the little Ouro about a thirty-seven percent throughput gain over its raw self, and the speculative decoder stacks more on top of that. The full accuracy numbers are landing as I speak. But the shape of the story is already the paper's story, seen from the hardware side: the looped model's entire pitch is doing more *thinking* per parameter — and thinking, unlike raw size, is cheap in memory.
+
+Getting there also meant hardening the plumbing. A four-model, three-benchmark sweep is a multi-hour job on rented machines, and a long-lived remote connection will drop over that span. So the runner now launches its work detached on the box and polls for the result over short, fresh connections, so a dropped link can never lose a completed run. Boring infrastructure, but it is the difference between an answer and a wasted afternoon.
+
+---
+
+## Recap, in six breaths
 
 Ouro loops its layers several times per token, so both the decode cost and the cache size scale with the loop depth — and that single fact is the entire problem.
 
 We built the measurement harness before anything else, and it told us to attack the decode step and leave prefill alone.
 
-Then we did decode surgery in a strict order — flat cache, packed projections, fused normalization, CUDA graphs — and every one of them had to prove it was bit-exact and reversible before it counted.
+Then we did decode surgery in a strict order — flat cache, packed projections, fused normalization, CUDA graphs, and a paged cache — and every one had to prove it was bit-exact and reversible before it counted. That exact roadmap came together into a paged cache whose fixed-address pages let us record a single reusable CUDA graph, about three-and-a-half times faster than eager.
 
-The current frontier is CUDA graph generation, worth roughly two-and-a-half to three-and-a-half times on decode, but bucketed and fragile, with a sweep in progress.
+Then we crossed into the approximate frontier, and the first thing we found was that our own rule needed sharpening: bit-exact was a proxy for "the quality didn't change," and when we actually measured, the numerically-inexact paths were quality-lossless. So the gate became perplexity, not identical bits.
 
-And the tempting approximate speedups — the faster normalization, quantization, parallel sampling — are real, and they are deliberately locked behind quality gates until the exact roadmap is finished. Because a fast wrong answer is not an answer.
+That license unlocked parallel decoding — guess several tokens, verify them all in one expensive loop, keep the greedy-matching run. Prompt-lookup for repetitive text, Jacobi for predictable text, a fused decoder that picks between them, and, most powerfully, depth-speculation that drafts Ouro at a shallow loop and verifies deep, nearly doubling throughput with no perplexity cost.
+
+And now we are pricing the whole thesis: a five-gigabyte looped model against a fifty-seven-gigabyte mixture and a fifteen-gigabyte dense model, on real reasoning benchmarks, with the hardware numbers measured throughout. The local test suite is well past two hundred passing. The discipline never changed — a fast wrong answer is still not an answer — we just learned to measure "wrong" honestly.
 
 That's the state of the work. Thanks for listening.
