@@ -17,6 +17,8 @@
     "https://images.unsplash.com/photo-1639322537228-f710d846310a?w=1920&q=80",  // Embedders
     "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1920&q=80",  // Recurrent Depth
     "https://images.unsplash.com/photo-1591405351990-4726e331f141?w=1920&q=80",  // Hardware Ouro
+    "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&q=80",  // Model Comparison
+    "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1920&q=80",  // Ouro Implementation
   ];
   const BG_BASE = "";
 
