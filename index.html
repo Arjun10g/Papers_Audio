@@ -19,11 +19,10 @@
     });
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.11.5/gsap.min.js" integrity="sha512-cOH8ndwGgPo+K7pTvMrqYbmI8u8k6Sho3js0gOqVWTmQMlLIi6TbqGWRTpf1ga8ci9H3iPsvDLr4X7xwhC/+DQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.11.5/ScrollTrigger.min.js" integrity="sha512-AMl4wfwAmDM1lsQvVBBRHYENn1FR8cfOTpt8QVbb/P55mYOdahHD4LmHM1W55pNe3j/3od8ELzPf/8eNkkjISQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/Observer.min.js" integrity="sha512-7xTD1meeGGoAzwZKA0Z8YelV3qAvRltuwACWXpnxtneF7VAMztOTAi3t4laVSaE4Znq4LMPeGUIYWEvKEk5r3Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/Draggable.min.js" integrity="sha512-S6SXKUZ11xkCoD/UuhdXG4B4iiCXng+xW2KCx0lgfQqmdqtjqGgm4WChdYIhO1F/CmH21vnkSUvPEgXNgDwkjg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="chapters.js" defer></script>
 <script src="index.js" defer></script>
 </head>
 <body>
@@ -35,152 +34,8 @@
           <input id="ch-search" type="search" placeholder="Search chapters…" aria-label="Search chapters" autocomplete="off">
           <span id="ch-search-count" class="ch-search-count"></span>
         </div>
-        <ul>
-          <!-- First paper -->
-          <li>
-            <a href="#chapter-splines" data-src="combined.mp3">
-              <span class="ch-num">1</span>
-              <span class="ch-title">Splines: Concepts and Applications</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Second paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined2.mp3">
-              <span class="ch-num">2</span>
-              <span class="ch-title">An Introduction to Machine Learning</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Third paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined3.mp3">
-              <span class="ch-num">3</span>
-              <span class="ch-title">An Introduction to Non Linearity</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Fourth Paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined4.mp3">
-              <span class="ch-num">4</span>
-              <span class="ch-title">Longitudinal Modelling</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Fifth Paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined5.mp3">
-              <span class="ch-num">5</span>
-              <span class="ch-title">Spline Interpretation</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Sixth Paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined6.mp3">
-              <span class="ch-num">6</span>
-              <span class="ch-title">Trees</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Seventh Paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined7.mp3">
-              <span class="ch-num">7</span>
-              <span class="ch-title">SVM</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Eighth Paper -->
-          <li>
-            <a href="#chapter-ml" data-src="combined8.mp3">
-              <span class="ch-num">8</span>
-              <span class="ch-title">Neural Networks</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Ninth Paper -->
-          <li>
-            <a href="#chapter-rashomon" data-src="rashomon_combined.mp3">
-              <span class="ch-num">9</span>
-              <span class="ch-title">The Rashomon Effect</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Tenth Paper -->
-          <li>
-            <a href="#chapter-paper1" data-src="paper1_combined.mp3">
-              <span class="ch-num">10</span>
-              <span class="ch-title">Rashomon Analysis & Model Instability</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Eleventh Paper -->
-          <li>
-            <a href="#chapter-boosting" data-src="boosting_combined.mp3">
-              <span class="ch-num">11</span>
-              <span class="ch-title">Ensemble Learning & Gradient Boosting</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Twelfth Paper -->
-          <li>
-            <a href="#chapter-decomposed-tree" data-src="decomposed_tree_combined.mp3">
-              <span class="ch-num">12</span>
-              <span class="ch-title">Decomposed Random-Effects Tree</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Thirteenth Paper -->
-          <li>
-            <a href="#chapter-transformers" data-src="transformer_combined.mp3" data-doc="readable_docs/transformer_explainer.md">
-              <span class="ch-num">13</span>
-              <span class="ch-title">Transformers & LLM Design Decisions</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Fourteenth Paper -->
-          <li>
-            <a href="#chapter-embedders" data-src="embedder_combined.mp3" data-doc="readable_docs/embedder_training.md">
-              <span class="ch-num">14</span>
-              <span class="ch-title">How Embedder Models Are Trained</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Fifteenth Paper -->
-          <li>
-            <a href="#chapter-recurrent-depth" data-src="recurrent_depth_combined.mp3" data-doc="recurrent-depth-models-lecture.md">
-              <span class="ch-num">15</span>
-              <span class="ch-title">Thinking in the Dark: Recurrent Depth Models</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Sixteenth Paper -->
-          <li>
-            <a href="#chapter-hardware-ouro" data-src="hardware_ouro_combined.mp3" data-doc="hardware-ouro-lecture.md">
-              <span class="ch-num">16</span>
-              <span class="ch-title">Making Ouro Fast: Hardware &amp; Kernel Optimization</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Seventeenth Paper -->
-          <li>
-            <a href="#chapter-model-comparison" data-src="model_comparison_combined.mp3" data-doc="model-comparison-lecture.md">
-              <span class="ch-num">17</span>
-              <span class="ch-title">Four Models, One GPU: A Hardware Comparison</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-          <!-- Eighteenth Paper -->
-          <li>
-            <a href="#chapter-ouro-implementation" data-src="ouro_implementation_combined.mp3" data-doc="ouro-implementation-lecture.md">
-              <span class="ch-num">18</span>
-              <span class="ch-title">Ouro in Practice: Implementation Plan</span>
-              <span class="ch-cta" aria-hidden="true">▶</span>
-            </a>
-          </li>
-        </ul>
+        <!-- Rendered from CHAPTERS in chapters.js -->
+        <ul id="ch-list"></ul>
       </div>
     </div>
 

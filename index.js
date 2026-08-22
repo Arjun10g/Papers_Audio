@@ -1,25 +1,4 @@
 (() => {
-  // ── Background images per chapter (by index) ──
-  const BACKS = [
-    "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=1920&q=80",  // Splines
-    "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",  // ML
-    "https://images.unsplash.com/photo-1545987796-200677ee1011?w=1920&q=80",     // Non-Linearity
-    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1920&q=80",     // Longitudinal
-    "https://images.unsplash.com/photo-1509228468518-180dd4864904?w=1920&q=80",  // Spline Interpretation
-    "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=1920&q=80",  // Trees
-    "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=1920&q=80",     // SVM
-    "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1920&q=80",  // Neural Networks
-    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1920&q=80",  // Rashomon Effect
-    "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?w=1920&q=80",  // Rashomon Analysis
-    "https://images.unsplash.com/photo-1527474305487-b87b222841cc?w=1920&q=80",  // Boosting/Ensemble
-    "https://images.unsplash.com/photo-1518186285589-2f7649de83e0?w=1920&q=80",  // Decomposed Tree
-    "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",  // Transformers/LLMs
-    "https://images.unsplash.com/photo-1639322537228-f710d846310a?w=1920&q=80",  // Embedders
-    "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1920&q=80",  // Recurrent Depth
-    "https://images.unsplash.com/photo-1591405351990-4726e331f141?w=1920&q=80",  // Hardware Ouro
-    "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&q=80",  // Model Comparison
-    "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1920&q=80",  // Ouro Implementation
-  ];
   const BG_BASE = "";
 
   const SKIP = 15;                       // seconds for skip buttons / arrow keys
@@ -30,6 +9,8 @@
   const pad = n => String(n).padStart(2, '0');
   const fmt = s => !isFinite(s) ? "00:00" : `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const escapeHtml = s => String(s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const store = {
     get: (k, d) => { try { const v = localStorage.getItem(LS + k); return v === null ? d : v; } catch { return d; } },
     set: (k, v) => { try { localStorage.setItem(LS + k, v); } catch {} },
@@ -72,12 +53,24 @@
   const helpOverlay = $('#help-overlay');
   const helpClose   = $('#help-close');
 
+  // ── Build the chapter list from CHAPTERS (see chapters.js) ──
+  const chapterList = $('#ch-list');
+  chapterList.innerHTML = CHAPTERS.map((c, i) => `
+    <li>
+      <a href="#chapter-${i + 1}"${c.src ? ` data-src="${c.src}"` : ''}${c.doc ? ` data-doc="${c.doc}"` : ''}>
+        <span class="ch-num">${i + 1}</span>
+        <span class="ch-title">${escapeHtml(c.title)}</span>
+        <span class="ch-cta" aria-hidden="true">${c.src ? '▶' : '📖'}</span>
+      </a>
+    </li>`).join('');
+
   const chapterLinks = $$('.chapters a');
-  const PLAYLIST = chapterLinks.map((a, i) => ({
-    src: a.dataset.src || "",
-    doc: a.dataset.doc || "",
-    title: a.querySelector('.ch-title')?.textContent.trim() || `Chapter ${i + 1}`,
-    li: a.closest('li'),
+  const PLAYLIST = CHAPTERS.map((c, i) => ({
+    src: c.src || "",
+    doc: c.doc || "",
+    bg: c.bg || CHAPTERS[0].bg,
+    title: c.title,
+    li: chapterLinks[i]?.closest('li'),
   }));
 
   if (!PLAYLIST.length) return;
@@ -122,7 +115,7 @@
 
   // ── UI helpers ──
   function setBackgroundForIndex(i) {
-    const bg = BACKS[i] || BACKS[0];
+    const bg = PLAYLIST[i]?.bg || PLAYLIST[0].bg;
     rightPane.style.backgroundImage = `url('${BG_BASE}${bg}')`;
     rightPane.style.backgroundSize = 'cover';
     rightPane.style.backgroundRepeat = 'no-repeat';
@@ -147,7 +140,7 @@
         title: tr.title,
         artist: 'Papers, as Audio',
         album: `Chapter ${index + 1}`,
-        artwork: [{ src: BACKS[index] || BACKS[0], sizes: '512x512', type: 'image/jpeg' }],
+        artwork: [{ src: PLAYLIST[index]?.bg || PLAYLIST[0].bg, sizes: '512x512', type: 'image/jpeg' }],
       });
     } catch {}
   }

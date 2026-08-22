@@ -1,0 +1,13 @@
+# The old per-lecture Speechify scripts carry a hardcoded API key. Seven of them
+# are still untracked; keeping them out of the index stops the leak spreading
+# further. (The four already in history need the key rotated — see README.)
+# generate_lecture.py replaces all of them and needs no credentials at all.
+*_speech.py
+
+# Editor / OS noise
+.DS_Store
+.claude/
+*.bak
+
+# Intermediate audio: only the *_combined.mp3 files are worth versioning
+_concat.txt
