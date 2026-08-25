@@ -2,999 +2,238 @@
 
 ### Model–serving co-design in August 2026
 
-*Narrated with Kokoro-82M (`af_heart`), generated locally — no API, no per-character billing.*
+*Approx. 25 minutes spoken. A companion to "Same Model, Twice as Fast": that lecture takes a fixed model and squeezes it; this one is about how the model and the machine that serves it are increasingly designed together.*
 
-August 2026 gives us a particularly useful window into where large language model architecture is heading, because the most important developments are no longer just about making the neural network smarter. Increasingly, the architecture of the model and the architecture of the serving system are being designed together.
+August 2026 gives us a useful window into where large language model architecture is heading, because the most important developments are no longer about making the neural network smarter. Increasingly, the architecture of the model and the architecture of the serving system are being designed together.
 
-That is the central idea I want you to keep in mind throughout this lecture.
+That is the idea to keep in mind throughout.
 
-If you want to understand modern model inference, do not begin by asking only how many parameters the model has or how many floating-point operations it performs. Ask what has to move through the system every time the model produces a token. Ask where the model weights are located. Ask what information has to be stored about the conversation. Ask how many GPUs have to communicate. Ask whether the system can predict several tokens at once. And ask whether the infrastructure serving the model actually matches the architecture of the model.
+If you want to understand modern inference, do not begin by asking how many parameters the model has. Ask what has to move through the system every time it produces a token. Ask where the weights live. Ask what has to be remembered about the conversation. Ask how many GPUs have to talk to each other. And ask whether the infrastructure serving the model actually matches the shape of the model.
 
-Those questions explain a remarkable amount of what happened in August 2026.
+Those questions explain a remarkable amount of what happened in August.
 
 
 ## The Sequential Problem
 
-Let us begin with the fundamental problem of inference.
+Start with the fundamental problem of inference.
 
-When we train a language model, we already know the sequence of tokens that the model is supposed to process. That allows us to parallelize a great deal of the computation. During generation, however, the situation is different. The model generates one token, uses that result to help generate the next token, then repeats the process.
+When we train a language model, we already know the whole sequence the model is supposed to process, so we can parallelize enormously. During generation we cannot. The model produces one token, uses it to help produce the next, and repeats.
 
-This creates a sequential loop.
+That sequential loop gives inference a completely different performance profile from training.
 
-The model cannot simply generate the entire answer independently in one giant parallel operation, because later tokens depend on earlier generated tokens.
+When serving one user or a few users, the hardware is usually limited not by how much arithmetic it can do, but by how fast it can move weights and state to the places where the arithmetic happens. A modern GPU can execute a staggering number of operations, but if every new token requires dragging huge quantities of weights out of memory, the arithmetic units spend much of their time waiting.
 
-This means inference has a very different performance profile from training.
-
-During inference, especially when serving one user or a small number of users, the hardware is frequently limited not by how many mathematical operations it can perform, but by how quickly it can move model weights and model state to the places where those operations happen.
-
-This is one reason model serving has become such an important research area.
-
-A modern GPU can execute enormous quantities of arithmetic. But if every new token requires loading huge amounts of model weights from memory, then the arithmetic units may spend part of their time waiting for data.
-
-So one of the biggest themes of August 2026 is reducing the amount of information that needs to move for every useful generated token.
+So the theme of the month is reducing how much information has to move per useful generated token.
 
 
 ## Qwen3.8 and Mixture of Experts
 
-The Qwen3.8 family is probably the clearest example of this model-and-serving co-design philosophy.
+The Qwen3.8 family is the clearest example of the co-design philosophy.
 
-The largest Qwen3.8 model has roughly two point four trillion parameters in total, which sounds almost absurdly large. But it does not use all two point four trillion parameters every time it generates a token. Only roughly ninety-five billion parameters are active for a particular token.
+The largest model has roughly two point four trillion parameters in total, which sounds absurd. But it does not use all of them for every token. Only about ninety-five billion are active at a time.
 
-The mechanism that enables this is called mixture of experts.
+The mechanism is mixture of experts. Instead of one enormous general-purpose block, the model contains hundreds of specialist sub-networks called experts. When a token arrives, a small routing network decides which few experts should handle it. The model can hold an enormous amount of total capacity without executing all of it for every token.
 
-Here is the intuitive idea.
+That sounds like a pure win, and it creates a new problem, because the experts have to live somewhere. Spread hundreds of experts across many GPUs and tokens now have to be routed across the machine or the cluster. One token wants expert fourteen, another wants expert two hundred and seven, another wants a different combination entirely. The system has to ship tokens to the right experts, run them, and gather the results back.
 
-Imagine that instead of one enormous general-purpose department inside the neural network, the model contains hundreds of specialist departments. These are called experts.
+So mixture of experts reduces computation and increases communication.
 
-When a token enters a mixture-of-experts layer, a small routing network looks at that token and decides which experts should process it.
-
-Perhaps there are hundreds of experts available, but only a small number are selected.
-
-This lets the model contain an enormous amount of total knowledge and parameter capacity without having to execute the entire model for every token.
-
-That sounds like an obvious win, but it creates a new systems problem.
-
-Those experts have to live somewhere.
-
-If you have hundreds of experts distributed over many GPUs, then tokens must be routed across the machine or across the cluster.
-
-One token might need expert number fourteen. Another token might need expert number two hundred and seven. Another might need a completely different combination.
-
-The inference system therefore has to move tokens to the correct experts, execute the expert networks, and then gather the outputs again.
-
-So mixture of experts reduces computation, but it can increase communication.
-
-This illustrates one of the most important principles in model serving.
-
-When you remove one bottleneck, another bottleneck often becomes visible.
-
-If you reduce arithmetic, communication can dominate.
-
-If you reduce the amount of model weights being used, the key-value cache can dominate.
-
-If you reduce the cache, network communication or synchronization can dominate.
-
-There is no such thing as an optimization that exists independently of the full system.
-
-Now Qwen3.8 does something else that is arguably even more interesting.
-
-It does not use conventional full Transformer attention in every sequence-processing layer.
-
-Most of the layers use a recurrent mechanism called Gated DeltaNet, while full attention is inserted periodically.
+This is the principle that governs everything that follows: when you remove one bottleneck, another becomes visible. Reduce arithmetic and communication starts to dominate. Reduce weight traffic and the cache starts to dominate. Reduce the cache and synchronization starts to dominate. No optimization exists independently of the full system.
 
 
 ## The KV Cache
 
-To understand why that is important, we need to understand the key-value cache.
+To see why, we need the key-value cache.
 
-When an ordinary Transformer generates text, it needs information about the tokens that came before the current token.
+When a Transformer generates text, it needs information about the tokens that came before. Recomputing the entire conversation for every new token would be disastrous, so the model stores intermediate information about previous tokens — the keys and values — and attends to those instead. This is what makes autoregressive generation practical.
 
-The naive approach would be to recompute everything about the previous conversation every single time a new token is generated.
+The catch is that the cache grows with the conversation. A context of a hundred thousand tokens means retaining information for a hundred thousand tokens across many attention layers. Multiply by thousands of simultaneous users, and memory capacity becomes the primary limit on how many people you can serve.
 
-That would be disastrously expensive.
+This is why recurrent architectures are interesting again. A recurrent layer does not keep a separate entry for every token in history; it maintains a fixed-size internal state that gets updated as new information arrives.
 
-So the model stores intermediate information about previous tokens. This stored information is called the key-value cache, or KV cache.
+The analogy is the difference between carrying the complete transcript of a meeting and carrying an evolving summary. The transcript is expensive to store, but you can retrieve precise details from it. The summary is small and cheap, but exact details get compressed away. Full attention is the transcript. Recurrent state is the summary.
 
-When a new token arrives, the model can attend to those stored keys and values rather than recomputing the entire history.
+Qwen3.8 uses both. Most layers use recurrent state, which is memory-efficient. Periodically, the architecture uses full attention, which restores high-fidelity access across the whole sequence.
 
-This makes autoregressive generation practical.
-
-But there is a catch.
-
-The longer the conversation becomes, the larger the KV cache becomes.
-
-If your model has a context containing a hundred thousand tokens, it must potentially retain information associated with those hundred thousand tokens across many attention layers.
-
-Now multiply that by hundreds or thousands of simultaneous users.
-
-Suddenly, memory capacity becomes one of the primary limits on how many users you can serve.
-
-This is why recurrent architectures are becoming interesting again.
-
-A recurrent layer does not necessarily retain a separate explicit memory entry for every token in the history.
-
-Instead, it can maintain a fixed-size internal state that is updated as new information arrives.
-
-A useful analogy is the difference between carrying the complete transcript of a meeting and carrying an evolving summary of the meeting.
-
-The complete transcript is expensive to store, but you can retrieve precise details from it.
-
-The evolving summary is much smaller and easier to carry, but some exact details may disappear as information is compressed.
-
-Full attention resembles the transcript.
-
-Recurrent state resembles the evolving summary.
-
-Qwen3.8 combines the two ideas.
-
-Most layers use recurrent state, which is relatively memory-efficient.
-
-Then periodically the architecture uses full attention, which restores high-fidelity access across the sequence.
-
-This is important because it suggests that the future may not be a simple contest between Transformers and recurrent models.
-
-Instead, we may see memory hierarchies inside the neural network itself.
-
-Some layers can provide cheap compressed memory.
-
-Other layers can provide expensive but precise access.
-
-You can think of that as the neural-network equivalent of a computer having registers, cache, main memory, and storage, each with different speed and capacity characteristics.
+That matters because it suggests the future is not a contest between Transformers and recurrent models. It is memory hierarchies inside the neural network itself — some layers offering cheap compressed memory, others offering expensive precise access. The neural-network equivalent of registers, cache, main memory and storage.
 
 
 ## Typed Model State
 
-Now here is where model serving becomes especially important.
+Here is where serving gets genuinely harder.
 
-An inference server designed for a conventional Transformer can think about request state primarily in terms of KV cache.
+A server built for a conventional Transformer can think about request state as essentially one thing: KV cache. A hybrid model like Qwen3.8 has several kinds. There is full-attention KV state. There is recurrent state. There is short sliding-window or convolutional state. There may be speculative-decoding state.
 
-But a hybrid architecture like Qwen3.8 can have several different kinds of state.
+These cannot be treated identically. Some state is reusable whenever two prompts share a prefix. Some recurrent state is only valid at a particular checkpoint. Some can be shared safely; some must be copied before a conversation branches.
 
-There may be ordinary full-attention KV state.
+So serving frameworks are developing what you might call typed model state. SGLang's Unified Radix Cache is one example. The underlying idea — prefix sharing — is already familiar: if a thousand requests begin with the same ten-thousand-token system prompt, it would be absurd to process those ten thousand tokens a thousand times, so the server stores the state for the shared prefix and reuses it.
 
-There may be recurrent DeltaNet state.
+The new difficulty is that a hybrid architecture requires the cache to understand semantics, not just matching. The server cannot say "these tokens match, therefore everything is reusable." It has to say: this attention state is reusable, this recurrent state is reusable only to this checkpoint, this sliding-window component needs this trailing region, and this mutable component needs a private copy before we touch it.
 
-There may be short sliding-window or convolutional state.
-
-There may also be speculative-decoding state.
-
-Those different forms of state cannot necessarily be treated in the same way.
-
-Some state can be reused whenever two prompts share the same prefix.
-
-Some recurrent state may only be valid at a particular checkpoint.
-
-Some state can safely be shared.
-
-Other state must be copied before one conversation branches into a different continuation.
-
-That is why serving frameworks are beginning to develop what you might call typed model state.
-
-SGLang's Unified Radix Cache is one example.
-
-A radix cache is essentially a prefix-sharing system.
-
-Suppose one thousand requests begin with the same system prompt.
-
-Maybe the system prompt is ten thousand tokens long.
-
-It would be extraordinarily wasteful to independently process those ten thousand tokens one thousand times.
-
-So the inference server stores the computed state associated with that common prefix.
-
-When another request arrives with the same prefix, it can reuse that work.
-
-That basic idea already exists in modern inference systems.
-
-The new problem is that hybrid architectures require the cache to understand different state semantics.
-
-The server cannot simply say, these tokens match, therefore everything can be reused.
-
-It has to say, these tokens match, therefore this type of attention state is reusable, this recurrent state is reusable only up to this checkpoint, this sliding-window component requires this particular trailing region, and this mutable component needs a private copy before we modify it.
-
-That is a much more sophisticated inference abstraction.
-
-And I think this is one of the biggest conceptual developments to understand from August.
-
-The server is no longer merely executing a neural network.
-
-The server is becoming a state-management system for a continuously evolving neural process.
+That is a much more sophisticated abstraction, and it is one of the biggest conceptual developments of the month. The server is no longer executing a neural network. It is becoming a state-management system for a continuously evolving process.
 
 
 ## Prefill and Decode as Separate Services
 
-Now let us talk about prefill and decode, because this is another place where serving architecture changes dramatically.
+There are really two computational phases behind every request.
 
-When you send a prompt to a language model, there are really two different computational phases.
+Prefill processes the prompt you supplied. Twenty thousand prompt tokens can be processed with enormous parallelism; the system is reading the input and building the state it needs before generation starts. Decode is the generation phase: produce a token, update state, produce the next one.
 
-The first is called prefill.
+These are very different workloads. Prefill handles many tokens at once. Decode handles a tiny number of new tokens while repeatedly touching a very large model and an ever-growing context.
 
-During prefill, the model processes the prompt you supplied.
+Historically, serving systems ran both on the same hardware layout. Qwen3.8 and SGLang show why that is becoming unattractive, because the best parallel configuration differs between them.
 
-If your prompt is twenty thousand tokens long, those twenty thousand tokens can be processed with substantial parallelism.
+For prefill you may want pipeline parallelism — divide the model by layers, with one GPU running the early layers, another the next group, and so on. Large batches of prompt tokens flow through that pipeline efficiently.
 
-The system is essentially reading the input and constructing the internal state it needs before generation begins.
+For decode, mixture of experts makes expert parallelism more attractive, spreading the experts across GPUs so no single GPU has to hold or repeatedly load the entire expert bank.
 
-Then comes decode.
+So the best physical representation of the model can genuinely differ between the two phases. Which leads to a striking idea: treat them as separate services. The prefill service reads the prompt and constructs state. That state transfers to a decode service with a completely different layout tuned for token generation.
 
-Decode is the token-generation phase.
-
-The model generates one new token, updates its state, generates the next token, and continues.
-
-Prefill and decode are computationally very different.
-
-Prefill usually involves processing many tokens at once.
-
-Decode usually involves processing a very small number of new tokens while repeatedly accessing a very large model and an increasingly large context.
-
-Historically, many serving systems treated those as two phases of the same workload and ran them using essentially the same hardware layout.
-
-Qwen3.8 and SGLang show why that assumption is becoming less attractive.
-
-The best parallel configuration for prefill can be different from the best configuration for decode.
-
-For prefill, you may want pipeline parallelism.
-
-Pipeline parallelism means dividing the model by layers.
-
-One GPU might execute the early layers. Another GPU executes the next group. Another executes later layers.
-
-Large batches of prompt tokens can flow through that pipeline efficiently.
-
-For decode, however, mixture-of-experts can make a different strategy more attractive.
-
-You may want expert parallelism, where the experts themselves are spread across GPUs so that no one GPU has to hold or repeatedly load the entire expert bank.
-
-That means the best physical representation of the model state can actually be different during prefill and decode.
-
-And this leads to a remarkable systems idea.
-
-Prefill and decode can be treated as separate services.
-
-The prefill service reads the prompt and constructs model state.
-
-Then that state is transferred to the decode service.
-
-The decode service may have a completely different parallel layout optimized specifically for token generation.
-
-That is a major evolution in inference infrastructure.
-
-Instead of thinking, I have one model server that executes one model, we begin thinking in terms of a pipeline of specialized computational services.
-
-One service is optimized for ingesting context.
-
-Another is optimized for generating tokens.
-
-Another could potentially perform speculative drafting.
-
-Another might handle retrieval.
-
-Another might manage long-term memory.
-
-And these services exchange model state.
-
-This is extremely important for anyone thinking about production AI infrastructure.
+Instead of one model server executing one model, we start thinking about a pipeline of specialized services that exchange model state — one for ingesting context, one for generating tokens, perhaps others for speculative drafting, retrieval, or long-term memory.
 
 
 ## Speculative Decoding
 
-Now we can talk about speculative decoding.
+Return to the fundamental problem: generation is sequential, and normally the large model runs once per token.
 
-Remember our fundamental problem: autoregressive generation is sequential.
+Speculative decoding asks whether we can avoid that. A smaller, cheaper model — the drafter — quickly proposes several future tokens, say six. The large model evaluates all six together. If it agrees with the first four, those four are accepted; at the first disagreement, the rest is discarded and generation resumes from the corrected point.
 
-Normally, the large model produces one token for every major decoding step.
+Four output tokens from roughly one large-model verification, instead of four separate large-model steps. That can be a dramatic speedup.
 
-Speculative decoding asks whether we can avoid invoking the expensive model once for every single token.
+But it depends entirely on acceptance rate. If the drafter proposes eight tokens and only one survives, most of that work was wasted.
 
-The system introduces a smaller or cheaper model called the drafter.
+August research adds an important observation: the optimal number of speculative tokens is not fixed. Under light load there is spare compute, verifying extra possibilities is cheap, and speculating aggressively pays. Under heavy load those extra positions compete for scarce resources, and the server wants shorter drafts.
 
-The drafter quickly predicts several possible future tokens.
+Adaptive systems like DSpark act on this. Rather than fixing a speculative length, the scheduler weighs the probability that each proposed token survives verification against the current cost of verifying it — a token near the start of the draft is likely to be accepted, one far out much less so — and prioritizes accordingly.
 
-For example, it might predict the next six tokens.
+That is a real shift. Speculative decoding stops being purely a model algorithm and becomes a scheduling algorithm. The correct policy depends on current server load, which means generation behavior is now dynamically controlled by the serving system.
 
-The large model then evaluates those proposed tokens together.
+A related direction is training models to speculate well together. Normally you train a large model and separately find a drafter, which may disagree with it often. Matryoshka model suites instead nest smaller models inside the larger one, so a small, medium and large model are literally subsets of the same network, trained together. The drafter and the verifier are aligned because they were designed as a family rather than introduced after the fact.
 
-If the large model agrees with several of them, those tokens are accepted.
-
-If it disagrees at some position, the incorrect continuation is discarded and generation resumes from the corrected point.
-
-Imagine that the drafter proposes six tokens and the expensive model accepts four of them.
-
-We have now obtained four final output tokens from roughly one large-model verification operation rather than requiring four independent large-model decoding steps.
-
-That can produce enormous speed improvements.
-
-But the efficiency depends heavily on acceptance rate.
-
-If the drafter predicts eight tokens and only the first one is accepted, most of the speculative work was wasted.
-
-August research makes an important observation here.
-
-The optimal number of speculative tokens is not fixed.
-
-Under light server load, it may be worthwhile to speculate aggressively.
-
-There is spare compute available, and verifying extra possibilities costs relatively little.
-
-Under heavy load, those extra speculative positions compete for valuable hardware resources.
-
-At that point, the server may want shorter draft sequences.
-
-This is what adaptive systems like DSpark are trying to do.
-
-Instead of choosing one speculative length permanently, the serving system considers the probability that each proposed token will survive verification and the current cost of verifying it.
-
-A token near the beginning of the draft might have a high probability of being accepted.
-
-A token far out in the speculative future might have a much lower probability.
-
-So the scheduler can prioritize speculative work according to expected value.
-
-This moves speculative decoding from being purely a model algorithm into being a scheduling algorithm.
-
-That is an important shift.
-
-The correct speculation policy depends on current server load.
-
-In other words, model generation behavior itself becomes dynamically controlled by the serving system.
-
-Another interesting direction is training models specifically so that they work well together during speculation.
-
-Normally, you might train a large model and then separately find or train a smaller drafter.
-
-But that drafter may disagree with the large model frequently.
-
-Matryoshka model suites attack this problem by nesting smaller models inside a larger model.
-
-Imagine a family containing a small model, a medium model, and a large model, where the smaller versions are literally subsets of the larger network.
-
-During training, they learn together.
-
-The larger model can help teach the smaller models.
-
-That has an obvious speculative-decoding advantage.
-
-The draft model and verification model are structurally and behaviorally aligned because they were designed as a family rather than meeting for the first time after training.
-
-This is another example of the same theme.
-
-Serving requirements begin influencing the training architecture itself.
+Once again, serving requirements are reaching back into training.
 
 
 ## Long-Context Serving
 
-Now let us move to long-context serving.
+As contexts stretch toward a million tokens, the cache becomes enormous.
 
-As context windows expand toward hundreds of thousands or even a million tokens, KV cache becomes enormous.
+Decode Context Parallelism attacks this directly. Ordinary tensor parallelism divides computation by attention heads or model dimensions — but newer attention architectures have very few distinct key-value heads, which can leave duplicated KV state on every GPU. Decode Context Parallelism instead divides the context itself. Given a two-hundred-thousand-token conversation and four GPUs, each GPU owns one section of the history rather than a redundant copy of all of it, and attention combines information across devices when needed.
 
-One August development called Decode Context Parallelism attacks this directly.
+That costs communication, and it dramatically reduces the KV memory each GPU must hold.
 
-In ordinary tensor parallelism, pieces of model computation may be divided across GPUs according to attention heads or model dimensions.
+The result is worth noticing carefully, because the individual model operation may not get much faster — but the server fits far more concurrent requests, so total system throughput rises enormously.
 
-But some newer attention architectures have very few distinct key-value heads.
-
-That can create duplicated KV state across GPUs.
-
-Decode Context Parallelism instead divides the context itself across devices.
-
-Imagine a conversation containing two hundred thousand tokens and four GPUs.
-
-Rather than every GPU keeping redundant information about the entire history, one GPU might own one section of that history, another owns another section, and so on.
-
-When the model performs attention, the necessary information is combined across devices.
-
-This creates communication overhead.
-
-But it can dramatically reduce the amount of KV memory each GPU has to hold.
-
-And that can produce a surprising result.
-
-The individual model operation may not become dramatically faster.
-
-But the server can fit many more concurrent requests.
-
-Therefore the total throughput of the serving system can rise enormously.
-
-This distinction is essential when you interpret inference benchmarks.
-
-Suppose one system claims six thousand tokens per second per GPU.
-
-That does not necessarily mean one user receives six thousand generated tokens per second.
-
-The number may describe aggregate throughput across hundreds of simultaneous requests.
-
-Likewise, another system might advertise seven hundred and fifty output tokens per second for one highly interactive request.
-
-Those are completely different measurements.
-
-This became particularly visible in August.
-
-OpenAI and Cerebras demonstrated GPT-5.6 Sol Ultrafast at up to roughly seven hundred and fifty generated tokens per second.
-
-That is fundamentally an interactive generation-speed claim.
-
-Meanwhile, vLLM demonstrated Qwen3.5 at more than twenty-five thousand total tokens per second per GPU under extremely high concurrency.
-
-That is primarily a fleet-throughput result.
-
-Both can be impressive.
-
-They simply answer different questions.
-
-If you are building an interactive coding agent, you may care enormously about how quickly one user's generation proceeds.
-
-If you are operating a giant batch-processing platform, you may care much more about total tokens processed per expensive accelerator.
-
-A mature serving analysis therefore needs several metrics.
-
-Time to first token tells you how long the user waits before anything starts appearing.
-
-Output tokens per second tells you how quickly generation proceeds after it begins.
-
-Aggregate throughput tells you how much useful work the machine completes across all users.
-
-Concurrency tells you how many active requests the system is supporting.
-
-Memory utilization tells you whether state capacity is limiting the service.
-
-And cost per generated token tells you whether the entire thing makes economic sense.
-
-A single tokens-per-second number is nowhere near enough.
+That distinction is essential, and it is where most benchmark confusion comes from.
 
 
 ## Cerebras and Where Weights Live
 
-Now let us discuss Cerebras, because this illustrates the hardware side of the same memory-movement problem.
+Cerebras illustrates the hardware side of the same memory-movement problem.
 
-Conventional AI accelerators use relatively small chips connected to large external high-bandwidth memory.
+Conventional accelerators use relatively small chips attached to large external high-bandwidth memory, and the compute units repeatedly read weights and state from it. Cerebras instead occupies an enormous portion of a silicon wafer and carries a very large quantity of fast on-chip SRAM, so far more of the model's working data stays physically close to the compute.
 
-The compute units repeatedly read weights and state from that memory.
+Why that matters: if generating a token requires pulling enormous quantities of weights through a memory interface, then no matter how fast the arithmetic is, the token cannot be produced until the weights arrive. Keep the weights near the processors and that bottleneck shrinks. This is why wafer-scale inference can hit extremely high interactive token rates.
 
-Cerebras takes an unusual approach.
+The lesson is not that everyone will build wafer-scale processors. It is that the physical placement of weights has become part of the serving algorithm. Where do parameters live? How often do they move? Across what interconnect? At what precision? Are inactive experts sitting in host memory? Can weights be pulled from another tier?
 
-Its processor occupies an enormous portion of a silicon wafer and contains a very large quantity of fast on-chip SRAM.
+Mixture of experts makes this vivid. If a model has hundreds of experts but needs only a few per token, keeping every expert permanently in expensive GPU memory is wasteful. ExactMoE explores keeping some expert weights outside the GPU and bringing them in on demand — frequently used experts stay resident, rarer ones live in host memory and transfer in when required. The benefit is much lower GPU memory use. The danger is transfer latency: if the router asks for an absent expert, a large amount of weight data has to move before computation continues.
 
-The basic serving advantage is that much more of the model's working data can remain physically close to the compute.
+So minimizing GPU memory is not the same as maximizing serving quality. You have to weigh footprint against throughput and latency together.
 
-Why is that important?
-
-Imagine that generating a token requires repeatedly pulling enormous quantities of weights through a memory interface.
-
-Even if the arithmetic is extremely fast, the model cannot generate the token until those weights arrive.
-
-If you can keep much more of those weights physically near the processors, you can substantially reduce that memory bottleneck.
-
-That is one reason wafer-scale inference can produce extremely high interactive token rates.
-
-The broader lesson is not that every company will suddenly build wafer-scale processors.
-
-The lesson is that the physical placement of model weights is becoming part of the model-serving algorithm.
-
-Where do the parameters live?
-
-How frequently do they move?
-
-Across what interconnect?
-
-At what precision?
-
-Are they in high-bandwidth memory?
-
-Are they in SRAM?
-
-Are inactive experts stored in host memory?
-
-Can weights be pulled directly from another memory tier?
-
-These are now central questions in AI performance.
-
-Mixture-of-experts makes this even more obvious.
-
-Suppose your model has hundreds of experts but only a few are needed for each token.
-
-Keeping every expert permanently in expensive GPU memory can be wasteful.
-
-A system called ExactMoE explores keeping some expert weights outside the GPU and bringing them in when required.
-
-This resembles a cache hierarchy.
-
-Frequently used experts remain resident on the GPU.
-
-Less frequently used experts may live in host memory.
-
-When an expert is needed, the system transfers it into an available GPU slot.
-
-The advantage is dramatically lower GPU memory usage.
-
-The danger is transfer latency.
-
-If the router requests an expert that is not already present on the GPU, the server may have to move a large amount of weight data before computation can continue.
-
-So again, minimizing GPU memory is not automatically the same thing as maximizing serving quality.
-
-You have to evaluate the full tradeoff between memory footprint, throughput, and latency.
-
-Another project, DeaMoE, asks a different question.
-
-What if many experts contain some common structure?
-
-Instead of treating each expert as a completely independent block of parameters, you can separate shared components from expert-specific components.
-
-Then the system does not have to load the same common information repeatedly for multiple experts.
-
-This directly attacks weight movement.
-
-Again we see the same theme: the important unit is not simply mathematical operations. It is useful computation per byte transferred.
+DeaMoE asks a different question: what if many experts share common structure? Separate the shared components from the expert-specific ones and the system stops reloading the same information for every expert. Again the theme holds — the unit that matters is not operations, but useful computation per byte transferred.
 
 
 ## Recurrent Depth
 
-Now let us turn to recurrent depth.
+Traditional Transformers give every layer its own parameters. Recurrent-depth architectures reuse the same block many times — instead of twenty-four unique floors, a smaller number of modules that the representation passes through repeatedly. A system like RecurrentGPT can use far fewer unique parameters while still doing substantial computation.
 
-Traditional Transformers generally have a stack of layers where each layer has its own parameters.
+Why does that help inference? Because unique parameters have to be stored and moved. Reusing the same weights several times shrinks the parameter footprint even when total computation is similar. On hardware where bandwidth is expensive relative to arithmetic, that is a very attractive trade: rather than continuously loading new weights, do more work with weights you already hold.
 
-Recurrent-depth architectures reuse the same block multiple times.
+But it creates its own serving problem. What happens to the cache? If every recurrent pass stores its own keys and values, the cache can grow substantially even though unique weights shrank — and you can lose through recurrent KV storage most of what you saved on parameters.
 
-Imagine instead of having twenty-four unique floors in a building, you have a smaller number of computational modules and repeatedly send the representation through the same module.
-
-A system like RecurrentGPT can therefore use far fewer unique parameters while still performing a substantial amount of computation.
-
-Why might this matter for inference?
-
-Because unique parameters have to be stored and moved.
-
-If the same weights can be reused several times, the model may have a much smaller parameter footprint even if it performs a similar amount of total computation.
-
-This is particularly attractive on hardware where memory bandwidth is expensive relative to arithmetic.
-
-You are effectively saying: rather than continuously loading new weights, I am willing to do more computation with weights that I already have.
-
-That is a very interesting trade.
-
-But recurrent depth creates its own serving challenge.
-
-What happens to the KV cache?
-
-If every recurrent application stores a separate set of attention keys and values, then the cache can grow substantially even though the unique model weights have shrunk.
-
-So you may save enormous amounts of parameter memory but lose much of that advantage through recurrent KV storage.
-
-This is why recurrent-depth models need more than weight sharing.
-
-They need a serving-aware state design.
-
-You might share some recurrent KV.
-
-You might compress it.
-
-You might replace some attention-based recurrent steps with fixed-size recurrent state.
-
-You might allow only selected loops to retain full cache entries.
-
-The important point is that recurrent depth cannot be evaluated solely by parameter count.
-
-Its real deployment value depends on what happens to persistent inference state.
+So recurrent depth needs more than weight sharing. It needs a serving-aware state design: share some recurrent KV, compress it, replace some attention-based steps with fixed-size recurrent state, or let only selected loops retain full cache entries. Recurrent depth cannot be judged by parameter count alone. Its real value depends on what happens to persistent inference state.
 
 
 ## The Full-bandwidth Transformer
 
-Now we can move to what I think is one of the most interesting architecture papers of August: the Full-bandwidth Transformer.
+One of the most interesting architecture papers of the month starts from an odd observation.
 
-In a normal autoregressive Transformer, a huge amount of internal computation occurs before the model chooses a token.
+In a normal autoregressive Transformer, an enormous amount of internal computation happens before the model picks a token — and then all of that richness collapses into one discrete token, which is what the next step receives.
 
-Then something surprisingly restrictive happens.
+A Full-bandwidth Transformer also feeds part of the previous step's hidden representation directly into the next step. The model does not communicate with its future self only through words; it can pass forward a richer internal representation as well.
 
-The model collapses all of that rich internal computation into one discrete token.
+Think about solving a hard problem in your head. If you had to fully verbalize your entire mental state after every small reasoning step and then erase everything except those words, that would be enormously wasteful. Human reasoning does not appear to work that way — we hold continuous internal representations carrying far more than whatever sentence we say aloud.
 
-The next generation step receives that token as part of its input.
+The emitted token still matters. But a latent state continues forward alongside it. The reported experiments suggest better training efficiency at very little generation-time cost.
 
-In a Full-bandwidth Transformer, the model also feeds part of the previous step's hidden representation directly into the next step.
-
-In plain language, the model does not communicate with its future self only through words.
-
-It can also pass forward a richer internal representation.
-
-Imagine that you are solving a difficult problem in your head.
-
-If you were forced to completely verbalize your entire mental state after every tiny reasoning step and then erase everything except those words, that would be inefficient.
-
-Human reasoning does not seem to work that way.
-
-We maintain continuous internal representations that contain more information than whatever sentence we happen to say aloud.
-
-Full-bandwidth Transformers attempt something analogous.
-
-The emitted token remains important.
-
-But a rich latent state can also continue forward.
-
-The reported experiments suggest that this improves training efficiency while adding very little computational overhead during generation.
-
-If it scales, the idea could be important.
-
-It also introduces yet another new serving object.
-
-Now the inference server does not merely retain attention KV.
-
-It may also have to carry a persistent latent feedback state between generated tokens.
-
-This reinforces our earlier conclusion.
-
-Future serving systems may need to manage a portfolio of model state types.
-
-Recent exact memory.
-
-Compressed recurrent memory.
-
-Latent reasoning state.
-
-External retrieved memory.
-
-Speculative state.
-
-Tool state.
-
-And perhaps long-lived session state.
+And it introduces yet another serving object. The server may now have to carry a persistent latent feedback state between tokens, on top of everything else — exact recent memory, compressed recurrent memory, latent reasoning state, retrieved memory, speculative state, tool state, session state. Managing a portfolio of state types is becoming the job.
 
 
 ## Sessions, Not Requests
 
 That brings us to GPT-Live and continuous inference.
 
-Traditional language-model APIs encourage us to imagine interaction as independent requests.
+Traditional APIs encourage us to imagine interaction as independent requests: a prompt arrives, the server answers, the request ends. An always-on voice agent is not shaped like that at all. It may be listening while speaking. The user can interrupt. Audio arrives continuously. The model may call another model or tool, hold state for hours, and migrate to different hardware without the conversation restarting.
 
-A prompt arrives.
+So the abstraction changes. Instead of requests, sessions. Instead of request latency, continuous real-time deadlines. Instead of rebuilding state from a transcript, preserving active model state. Instead of asking how many requests per second a server handles, asking how many simultaneous live conversations the infrastructure can hold.
 
-The server produces an answer.
+Agent serving starts to look less like a web server answering calls and more like an operating system managing long-running processes. A live agent has state. It occupies resources. It may migrate, need more compute temporarily, delegate work, compact its memory, suspend, resume, or fork. Those are operating-system concepts.
 
-The request ends.
+Which leads to another intriguing idea: cross-model KV transfer. Suppose a conversation starts on a small, cheap model, most turns are easy, and then a genuinely hard question arrives. Normally the larger model would have to reread the entire conversation to build its own cache — expensive at a hundred thousand tokens. Cross-model KV transfer tries instead to translate the small model's internal state into the large model's format.
 
-Then another request arrives.
+If that becomes reliable, routing changes character. You could start sessions cheaply, escalate only when necessary, keep most of the computational history, and drop back down afterwards. That is stateful model routing rather than picking a model per request.
 
-But an always-on voice agent is not naturally structured that way.
+Now combine everything. A conversation begins on a small model. Exact KV covers recent history, compressed recurrent state covers older history, and a shared cache holds the system prompt across thousands of sessions. When something hard arrives, state moves to a larger model, which decodes speculatively with a nested drafter whose depth varies with cluster load. The model uses sparse experts, placed near the compute that needs them. Prefill runs on one group of hardware, decode on another, and long contexts are split across GPUs by position — and the session can migrate between workers without losing continuity.
 
-The system may be listening while it is speaking.
-
-The user can interrupt.
-
-Audio arrives continuously.
-
-The model may need to call another model or tool.
-
-It may need to maintain state for minutes or hours.
-
-It may need to migrate to different hardware without making the conversation restart.
-
-This produces a completely different serving abstraction.
-
-Instead of requests, you have sessions.
-
-Instead of request latency, you have continuous real-time deadlines.
-
-Instead of repeatedly reconstructing all state from a transcript, you want to preserve active model state.
-
-Instead of asking how many requests per second a server handles, you may ask how many simultaneous live conversations the infrastructure can maintain.
-
-That distinction is extremely important.
-
-The future of agent serving may look less like a web server answering API calls and more like an operating system managing long-running computational processes.
-
-A live agent has state.
-
-It occupies resources.
-
-Its state may need to migrate.
-
-It may temporarily need more compute.
-
-It may delegate work to another model.
-
-It may compact its memory.
-
-It may suspend.
-
-It may resume.
-
-It may fork.
-
-Those are operating-system-like concepts.
-
-And that leads to another intriguing August idea: cross-model KV transfer.
-
-Suppose you begin a conversation using a smaller, cheaper model.
-
-Most turns are easy.
-
-Then the user asks an extremely difficult question.
-
-You would like to escalate the session to a larger model.
-
-Normally, the larger model would have to reread the entire conversation so that it can build its own KV cache.
-
-If the conversation contains one hundred thousand tokens, that can be expensive.
-
-Cross-model KV transfer attempts to transform the internal state of the smaller model into state usable by the larger model.
-
-In other words, instead of giving the new model the entire transcript and saying, read all of this again, we try to translate the smaller model's memory into the larger model's memory format.
-
-If that can be made reliable, it changes model routing substantially.
-
-You could begin sessions cheaply.
-
-Escalate only when necessary.
-
-Preserve most of the computational history.
-
-Then potentially return to a cheaper model afterward.
-
-This is much more sophisticated than choosing a model independently for each API request.
-
-It creates stateful model routing.
-
-Now imagine combining several of the ideas we have discussed.
-
-A conversation begins on a relatively small model.
-
-The system maintains exact KV for recent history and compressed recurrent state for older history.
-
-A cache shares common system prompts across thousands of sessions.
-
-The small model handles normal interactions.
-
-When a difficult task appears, the system transfers or reconstructs state on a larger model.
-
-The large model uses speculative decoding, with a smaller nested model drafting future tokens.
-
-The speculative depth changes according to current cluster load.
-
-The model itself uses sparse experts, and the serving scheduler places frequently used experts close to the compute.
-
-Prefill occurs on one group of hardware.
-
-Decode occurs on another.
-
-Long contexts are distributed across GPUs according to sequence position.
-
-And a live session can migrate between workers without losing continuity.
-
-At that point, what exactly is "the model"?
-
-It is no longer easy to identify the intelligence with one neural-network checkpoint.
-
-The effective system consists of the checkpoint, the drafter, the cache policy, the quantization format, the expert placement strategy, the state-transfer system, the scheduler, and the topology of the serving cluster.
-
-That is why comparing models using architecture alone is becoming increasingly incomplete.
+At that point, what exactly is "the model"? The intelligence is no longer identifiable with one checkpoint. The effective system is the checkpoint plus the drafter, the cache policy, the quantization format, the expert placement, the state-transfer mechanism, the scheduler, and the topology of the cluster.
 
 
 ## Quantization
 
-Let us talk briefly about quantization.
+Quantization reduces the number of bits used for weights or activations, and August systems increasingly use four-bit formats such as NVFP4.
 
-A parameter is normally stored using some numerical representation, perhaps sixteen bits or eight bits.
+The obvious benefit is that the model occupies less memory. For inference, the more important benefit is that fewer bits means fewer bytes have to move. If a weight takes four bits instead of sixteen, you can push far more weights through the same memory interface in the same time — which is exactly what a bandwidth-limited decode needs.
 
-Quantization reduces the number of bits used to represent weights or activations.
+Done badly it costs accuracy, so modern quantization is not simply shrinking numbers; the calibration process has to preserve the most important information while cutting representation cost. The serving checkpoint becomes a deliberately engineered artifact rather than a generic compressed copy.
 
-August systems increasingly use four-bit formats such as NVFP4 for inference.
+It gets powerful in combination with speculation. Meta's Muse Glimmer is a dense multimodal model built to run on a high-end consumer GPU: quantize the target aggressively, pair it with a separate speculative model, and the reported setup generates above two hundred tokens per second for a single user on an RTX 5090. Very high interactive rates are not a datacenter privilege any more.
 
-Why does that help?
-
-The obvious answer is that the model occupies less memory.
-
-But for inference, another answer can be even more important.
-
-Fewer bits mean fewer bytes have to move.
-
-If a weight uses four bits rather than sixteen, you can potentially move far more weights through the same memory interface in the same amount of time.
-
-That is incredibly valuable in bandwidth-limited decoding.
-
-Of course, quantization can reduce accuracy if done badly.
-
-So modern quantization is not simply shrinking numbers.
-
-The model and calibration process must preserve the most important information while reducing representation cost.
-
-Again, this is model-serving co-design.
-
-The serving checkpoint may be a deliberately engineered version of the model rather than a generic compressed copy.
-
-This becomes particularly powerful when combined with speculative decoding.
-
-Meta's Muse Glimmer is a good example.
-
-It is a dense multimodal model designed to run locally on a high-end consumer GPU.
-
-The target model is quantized aggressively, and it is paired with a separate speculative model.
-
-The result is generation above two hundred tokens per second for an individual user on an RTX 5090 in the reported setup.
-
-That matters because it shows that very high interactive generation rates are not limited only to giant datacenters.
-
-A sufficiently optimized model, quantization format, drafter, and runtime can make large agentic models viable on local hardware.
-
-Notice, however, that you should not attribute that speed simply to the architecture of the base model.
-
-It is a system result.
-
-Remove the drafter, change the precision, change the runtime, or alter the workload, and the number changes.
-
-This is another reason inference benchmarks need careful interpretation.
+But do not attribute that number to the base architecture. It is a system result. Remove the drafter, change the precision, change the runtime or the workload, and the number moves.
 
 
 ## Reading Benchmark Claims
 
-Now I want to give you a framework for evaluating grandiose performance claims.
+Which brings us to interpreting performance claims. When somebody advertises an enormous tokens-per-second figure, ask six questions.
 
-Whenever somebody says their model produces an enormous number of tokens per second, ask six questions.
+Is that output tokens or total processed tokens? Is it one user or aggregated across many? What is the concurrency? What are the input and output lengths? What hardware and precision? And what happened to time to first token and per-user latency?
 
-First, is that output tokens or total processed tokens?
+Those answers can invert the meaning of a benchmark. In August, OpenAI and Cerebras demonstrated GPT-5.6 Sol Ultrafast at roughly seven hundred and fifty generated tokens per second — an interactive, single-stream claim. Meanwhile vLLM demonstrated Qwen3.5 at more than twenty-five thousand total tokens per second per GPU under very high concurrency — a fleet-throughput claim. Both are impressive. They answer different questions, and each individual user on the second system experiences only moderate speed.
 
-Second, is it for one user or aggregated across many users?
+So a single number is never enough. You need the Pareto frontier: the tradeoff surface across per-user speed, total throughput, memory, quality, power and cost, where improving one thing costs you another. The best serving reports show several operating points — tuned for fast individual generation at low concurrency, trading responsiveness for aggregate throughput at high concurrency.
 
-Third, what is the concurrency?
+If you are building an interactive coding agent, the first number is what you care about. If you run a batch platform, the second is.
 
-Fourth, what are the input and output lengths?
 
-Fifth, what hardware and numerical precision are being used?
+## What It All Adds Up To
 
-Sixth, what happens to time to first token and per-user latency?
+Three architectural movements are happening at once, and each attacks a different kind of waste.
 
-These questions can completely change the meaning of a benchmark.
+Sparse computation says we should not activate every parameter for every token. Compressed or hierarchical state says we should not store every detail of every previous token forever. Amortized generation says we should not need one full expensive model step per accepted output token.
 
-A server producing twenty-five thousand tokens per second across thousands of concurrent requests may be enormously efficient, while each individual user experiences only moderate generation speed.
+All three push complexity into the serving layer. Sparse experts need routing and placement. Recurrent state needs lifecycle management. Speculation needs drafting, verification, acceptance logic and adaptive scheduling. That is why serving has moved to the center of architecture research. The interesting question is no longer which network achieves the best loss, but which combination of architecture and runtime achieves the most intelligence per dollar, per watt, per byte moved, and per millisecond the user actually perceives.
 
-Another machine might generate seven hundred and fifty tokens per second for one interactive stream but be much more expensive per user.
+The durable lessons are these. Full attention does not disappear, but we use less of it, invoking it periodically when precise global access is worth paying for. Sparse mixture of experts is now inseparable from systems engineering — the hard part is placing experts and moving their weights, not choosing them. Prefill and decode are separate workloads. Speculation becomes adaptive, tuned to confidence and load rather than fixed. And inference state is a first-class computational resource that has to be managed explicitly.
 
-Neither number tells you everything.
+One sentence for the whole month: the frontier of inference is moving from optimizing calculations to optimizing movement and state.
 
-You need the Pareto frontier.
+The winning systems ask which parameters truly need to activate, which bytes truly need to move, which history truly needs to stay exact, which computation can be reused, and how many accepted tokens can be extracted from each expensive pass.
 
-A Pareto frontier means examining tradeoffs where improving one objective requires sacrificing another.
+That is why Qwen3.8 is instructive — not because it has trillions of parameters, but because sparse experts, recurrent state, occasional full attention, low precision, speculative generation, typed caches and split prefill and decode are coordinated into one working system. It is why the Cerebras result matters: hardware redesigned around the memory behavior of autoregressive inference. And it is why Full-bandwidth Transformers and recurrent-depth models deserve attention despite being less mature, because they question two assumptions we rarely examine — that information between steps should travel as discrete tokens, and that more depth requires more unique weights.
 
-For inference, we may care about per-user speed, total throughput, memory consumption, model quality, power consumption, and cost.
+So when you evaluate a future architecture, do not just ask whether it has a cleverer attention mechanism. Ask what happens when ten thousand concurrent users sit behind it. What state does each one create, how fast does it grow, and where does it live? Can prefixes be shared? Can sessions migrate? Can the weights stay close to the compute, and the inactive ones somewhere cheaper? Can one expensive invocation yield several accepted tokens?
 
-There may be no single configuration that maximizes all of them.
+That is the difference between an architecture that looks impressive in a paper and one that becomes a usable platform.
 
-This is exactly why some of the best August serving reports are interesting: they show multiple operating points.
-
-At low concurrency, the system is optimized for extremely fast individual generation.
-
-At high concurrency, the scheduler trades some individual responsiveness for much higher aggregate throughput.
-
-That is how a real serving platform should be understood.
-
-
-## Three Movements
-
-Now let us bring everything together.
-
-There are three broad architectural movements happening simultaneously.
-
-The first is sparse computation.
-
-Mixture-of-experts says we should not activate every parameter for every token.
-
-The second is compressed or hierarchical state.
-
-Recurrent architectures say we should not store every detail of every previous token in every layer forever.
-
-The third is amortized generation.
-
-Speculative decoding and multi-token prediction say we should not require one full expensive model step for every accepted output token.
-
-These three ideas attack different sources of waste.
-
-Sparse experts reduce unnecessary weight computation.
-
-Recurrent state reduces unnecessary history storage.
-
-Speculation reduces unnecessary sequential target-model invocations.
-
-But all three transfer complexity into the serving layer.
-
-Sparse experts require expert routing and placement.
-
-Recurrent state requires sophisticated state lifecycle management.
-
-Speculation requires drafting, verification, acceptance logic, and adaptive scheduling.
-
-This is why model serving is moving to the center of architecture research.
-
-The interesting question is no longer simply, what neural network achieves the best loss?
-
-The interesting question is, what combination of neural architecture and runtime achieves the most intelligence per dollar, per watt, per byte transferred, and per millisecond of user-perceived latency?
-
-That is a much broader optimization problem.
-
-
-## Five Durable Lessons
-
-If I were trying to extract the most durable lessons from August 2026, I would focus on five.
-
-First, full attention probably does not disappear, but we are likely to use less of it.
-
-Hybrid models can use recurrent or sliding-window mechanisms for most sequence processing and periodically invoke full attention when precise global access is valuable.
-
-Second, sparse mixture-of-experts is becoming inseparable from systems engineering.
-
-The important problem is no longer merely choosing experts mathematically. It is placing them, moving their weights, managing load balance, and minimizing communication.
-
-Third, prefill and decode should increasingly be treated as separate workloads.
-
-The optimal hardware organization for reading a giant context is not necessarily the optimal organization for generating one token at a time.
-
-Fourth, speculative decoding will increasingly become adaptive.
-
-The system should change draft length and verification effort according to model confidence and current server load rather than using one static configuration.
-
-And fifth, inference state is becoming a first-class computational resource.
-
-KV cache, recurrent memory, latent feedback, retrieved documents, speculative state, session state, and potentially transferable state between models all have to be managed explicitly.
-
-If there is one sentence I would use to summarize the entire month, it is this:
-
-The frontier of inference is moving from optimizing calculations to optimizing movement and state.
-
-The winning systems increasingly ask which parameters actually need to be activated, which bytes actually need to move, which history actually needs to remain exact, which computation can be reused, and how many final accepted tokens can be extracted from each expensive pass through the model.
-
-That is why Qwen3.8 is such an instructive architecture.
-
-It is not impressive merely because it contains trillions of parameters.
-
-It is interesting because sparse experts, recurrent state, occasional full attention, low precision, speculative generation, typed caches, and different prefill and decode strategies can all be coordinated into one functioning serving system.
-
-That is also why the Cerebras result matters.
-
-It demonstrates what happens when hardware itself is redesigned around the memory behavior of autoregressive inference.
-
-And that is why Full-bandwidth Transformers and recurrent-depth models deserve attention even though they are less mature.
-
-They question two assumptions we have taken for granted: that information between token steps should travel primarily through discrete tokens, and that increasing model depth requires increasing the number of unique weights.
-
-So when evaluating future model architectures, I would not ask simply whether a paper has invented a cleverer attention mechanism.
-
-I would ask what happens when you put ten thousand concurrent users behind it.
-
-What state does every user create?
-
-How fast does that state grow?
-
-Where does it live?
-
-Can prefixes be shared?
-
-Can sessions migrate?
-
-How expensive is prefill?
-
-How expensive is decode?
-
-Can the weights stay close to the compute?
-
-Can inactive parameters stay somewhere cheaper?
-
-Can one expensive model invocation produce several accepted tokens?
-
-Can a small model take over easy work?
-
-Can we escalate to a large model without rereading the entire conversation?
-
-Can the serving scheduler dynamically change how the model computes according to load?
-
-Those questions are increasingly the difference between an architecture that looks impressive in a research paper and one that can become a genuinely useful platform.
-
-And that is the main story of August 2026: the model is no longer ending at the edge of the neural network.
-
-The cache is part of the model.
-
-The scheduler is part of the model.
-
-The speculative drafter is part of the effective model.
-
-The precision format is part of the model.
-
-The memory hierarchy is part of the model.
-
-And, increasingly, the topology of the serving cluster is part of the effective architecture too.
+Because the model no longer ends at the edge of the neural network. The cache is part of the model. The scheduler is part of the model. The drafter, the precision format, the memory hierarchy, and increasingly the topology of the cluster are all part of the effective architecture.
 
 That is the shift worth watching.
