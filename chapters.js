@@ -117,4 +117,10 @@ const CHAPTERS = [
     doc:   'inference-serving-lecture.md',
     bg:    'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=1920&q=80',
   },
+  {
+    title: 'Same Model, Twice as Fast: Optimizing for Throughput',
+    src:   'throughput_combined.mp3',
+    doc:   'throughput-optimization-lecture.md',
+    bg:    'https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=1920&q=80',
+  },
 ];
