@@ -1,0 +1,9 @@
+# Publishing (tools/publish.py) — small, always installed in CI
+huggingface_hub>=0.30
+mutagen>=1.47
+
+# Narration (tools/generate_lecture.py) — installed only when a lecture needs audio.
+# torch is pulled in by kokoro; on CI install the CPU wheel first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install kokoro soundfile numpy
+# and apt-get install espeak-ng ffmpeg.

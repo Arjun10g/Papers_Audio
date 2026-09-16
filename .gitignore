@@ -1,13 +1,19 @@
-# The old per-lecture Speechify scripts carry a hardcoded API key. Seven of them
-# are still untracked; keeping them out of the index stops the leak spreading
-# further. (The four already in history need the key rotated — see README.)
-# generate_lecture.py replaces all of them and needs no credentials at all.
+# Audio lives on Hugging Face (dataset arjun10g/papers-audio), never in git.
+# tools/publish.py uploads audio/ and writes library.json; the app streams from HF.
+audio/
+*.mp3
+*.wav
+_concat.txt
+
+# Files from the pre-September-2026 flat layout, parked for reference.
+_legacy/
+
+# The old per-lecture Speechify scripts carried a hardcoded API key.
 *_speech.py
 
-# Editor / OS noise
+# Editor / OS / Python noise
 .DS_Store
 .claude/
 *.bak
-
-# Intermediate audio: only the *_combined.mp3 files are worth versioning
-_concat.txt
+__pycache__/
+.venv/

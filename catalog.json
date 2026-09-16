@@ -1,0 +1,152 @@
+{
+  "title": "Papers, as Audio",
+  "lectures": [
+    {
+      "id": "splines",
+      "title": "Splines: Concepts and Applications",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=1920&q=80",
+      "published": "2025-08-26"
+    },
+    {
+      "id": "intro-ml",
+      "title": "An Introduction to Machine Learning",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",
+      "published": "2025-08-27"
+    },
+    {
+      "id": "nonlinearity",
+      "title": "An Introduction to Non-Linearity",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1545987796-200677ee1011?w=1920&q=80",
+      "published": "2025-08-28"
+    },
+    {
+      "id": "longitudinal",
+      "title": "Longitudinal Modelling",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1920&q=80",
+      "published": "2025-08-31"
+    },
+    {
+      "id": "spline-interpretation",
+      "title": "Spline Interpretation",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1509228468518-180dd4864904?w=1920&q=80",
+      "published": "2025-09-02"
+    },
+    {
+      "id": "trees",
+      "title": "Trees",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=1920&q=80",
+      "published": "2025-09-04"
+    },
+    {
+      "id": "svm",
+      "title": "Support Vector Machines",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=1920&q=80",
+      "published": "2025-09-17"
+    },
+    {
+      "id": "neural-networks",
+      "title": "Neural Networks",
+      "series": "Statistical Learning",
+      "bg": "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1920&q=80",
+      "published": "2025-09-18"
+    },
+    {
+      "id": "rashomon",
+      "title": "The Rashomon Effect",
+      "series": "Rashomon & Ensembles",
+      "bg": "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1920&q=80",
+      "published": "2026-03-31"
+    },
+    {
+      "id": "rashomon-instability",
+      "title": "Rashomon Analysis & Model Instability",
+      "series": "Rashomon & Ensembles",
+      "bg": "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?w=1920&q=80",
+      "published": "2026-04-01"
+    },
+    {
+      "id": "boosting",
+      "title": "Ensemble Learning & Gradient Boosting",
+      "series": "Rashomon & Ensembles",
+      "bg": "https://images.unsplash.com/photo-1527474305487-b87b222841cc?w=1920&q=80",
+      "published": "2026-04-06"
+    },
+    {
+      "id": "decomposed-tree",
+      "title": "Decomposed Random-Effects Tree",
+      "series": "Rashomon & Ensembles",
+      "bg": "https://images.unsplash.com/photo-1518186285589-2f7649de83e0?w=1920&q=80",
+      "published": "2026-04-09"
+    },
+    {
+      "id": "transformers",
+      "title": "Transformers & LLM Design Decisions",
+      "series": "Transformers & Embeddings",
+      "bg": "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",
+      "published": "2026-04-17"
+    },
+    {
+      "id": "embedders",
+      "title": "How Embedder Models Are Trained",
+      "series": "Transformers & Embeddings",
+      "bg": "https://images.unsplash.com/photo-1639322537228-f710d846310a?w=1920&q=80",
+      "published": "2026-04-21"
+    },
+    {
+      "id": "recurrent-depth",
+      "title": "Thinking in the Dark: Recurrent Depth Models",
+      "series": "Recurrent Depth & Ouro",
+      "bg": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1920&q=80",
+      "published": "2026-06-25"
+    },
+    {
+      "id": "hardware-ouro",
+      "title": "Making Ouro Fast: Hardware & Kernel Optimization",
+      "series": "Recurrent Depth & Ouro",
+      "bg": "https://images.unsplash.com/photo-1591405351990-4726e331f141?w=1920&q=80",
+      "published": "2026-07-03"
+    },
+    {
+      "id": "model-comparison",
+      "title": "Four Models, One GPU: A Hardware Comparison",
+      "series": "Recurrent Depth & Ouro",
+      "bg": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&q=80",
+      "published": "2026-07-06"
+    },
+    {
+      "id": "ouro-implementation",
+      "title": "Ouro in Practice: Implementation Plan",
+      "series": "Recurrent Depth & Ouro",
+      "bg": "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1920&q=80",
+      "published": "2026-07-07"
+    },
+    {
+      "id": "inference-serving",
+      "title": "The Model Is No Longer Just the Model: Serving in August 2026",
+      "series": "Inference & Serving",
+      "bg": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=1920&q=80",
+      "published": "2026-08-25"
+    },
+    {
+      "id": "throughput",
+      "title": "Same Model, Twice as Fast: Optimizing for Throughput",
+      "series": "Inference & Serving",
+      "bg": "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=1920&q=80",
+      "published": "2026-08-25"
+    },
+    {
+      "id": "expert-prefetch",
+      "title": "What We Learned About Predictive MoE Prefetching",
+      "series": "Inference & Serving",
+      "bg": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=80",
+      "published": "2026-09-16"
+    }
+  ]
+}

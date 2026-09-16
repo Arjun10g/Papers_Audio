@@ -1,0 +1,84 @@
+# Push to main → narrate any lecture that still lacks audio → sync audio,
+# transcripts and library.json to the Hugging Face dataset → deploy the app to
+# GitHub Pages. The phone app reads library.json at launch, so a new lecture
+# shows up on the phone without touching the app.
+name: Publish library & deploy app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements.txt
+
+      - run: pip install -r tools/requirements.txt
+
+      - name: Find lectures that still need narration
+        id: missing
+        run: |
+          python tools/publish.py --list-missing | tee missing.txt
+          echo "count=$(grep -c . missing.txt || true)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Kokoro weights
+        if: steps.missing.outputs.count != '0'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: kokoro-82m-v1
+
+      - name: Install Kokoro (only when something needs narrating)
+        if: steps.missing.outputs.count != '0'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng ffmpeg
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install kokoro soundfile numpy
+
+      - name: Narrate
+        if: steps.missing.outputs.count != '0'
+        run: |
+          while read -r id; do
+            [ -n "$id" ] && python tools/generate_lecture.py "$id"
+          done < missing.txt
+
+      - name: Publish to Hugging Face
+        run: python tools/publish.py
+
+      - name: Stamp the app version with the commit
+        run: python tools/stamp_version.py "${GITHUB_SHA::7}"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
