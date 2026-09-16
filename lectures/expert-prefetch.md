@@ -1,419 +1,267 @@
-# Lecture: what we learned about predictive MoE prefetching
+# What We Learned About Predictive MoE Prefetching
 
-**Session covered:** 15–16 September 2026 continuation
+### A lecture on the September 2026 expert-prefetch session
 
-**Audience:** an engineer who wants to understand the design, the experiments, the evidence boundaries, and the implementation choices well enough to reproduce or challenge them.
+*Approx. 40 minutes spoken. Written to be listened to: the numbers are rounded and said aloud, the equations are described in words, and the run identifiers, file paths, and hashes live in the written session notes rather than here. The central result is deliberately modest. The predictors improve offline route quality, but on the measured Qwen 3.5 workload they do not beat a plain reactive cache on end-to-end token time.*
 
-This lecture explains the work completed in this continuation session. Here **end-to-end (E2E)** means the complete token workload, **least-recently-used (LRU)** means the reactive residency baseline, and **inter-token latency (ITL)** means the measured time per generated token. It begins with a short Qwen3 closeout from the first part of the session, then focuses on the Qwen3.5 and Qwen3.8 predictor and hardware expansion. The central result is deliberately modest: the predictors improve offline route quality, but the measured Qwen3.5 E2E workload shows no E2E LRU speed win. Qwen3.8 has useful head, cache-replay, and transfer evidence, while whole-model E2E is unsupported by the current single-GPU harness.
-
-## Contents
-
-1. [The question](#the-question)
-2. [A short chronology](#a-short-chronology)
-3. [MoE routing and the prediction problem](#moe-routing-and-the-prediction-problem)
-4. [The timing pipeline](#the-timing-pipeline)
-5. [Metrics and why they are separate](#metrics-and-why-they-are-separate)
-6. [Predictor families and equations](#predictor-families-and-equations)
-7. [Low-rank correction, step by step](#low-rank-correction-step-by-step)
-8. [Model geometry and selected configurations](#model-geometry-and-selected-configurations)
-9. [Offline results](#offline-results)
-10. [Hardware and transfer measurements](#hardware-and-transfer-measurements)
-11. [Qwen3.5 end-to-end results](#qwen35-end-to-end-results)
-12. [Engineering repairs and reproducibility](#engineering-repairs-and-reproducibility)
-13. [What the results mean](#what-the-results-mean)
-14. [Unexecuted next experiments](#unexecuted-next-experiments)
-15. [Glossary](#glossary)
-16. [Source map](#source-map)
-17. [Self-check questions](#self-check-questions)
+---
 
 ## The question
 
-Mixture-of-Experts (MoE) language models contain many expert feed-forward networks, but route each token to only a small native set. Let `E` be the number of experts and `K` the native router's top-k. A token in Qwen3.5, for example, chooses `K=8` experts from `E=256`. The inactive experts may live in host memory or another tier, so the runtime would like to transfer likely future experts while the GPU is doing useful work.
+Welcome back. Today's subject is a systems experiment with a negative headline and a lot of useful detail underneath it. The question is whether a mixture-of-experts language model can predict which experts it is about to need, early enough to move their weights into place before they are used.
 
-The proposal has two possible sources of advantage:
+Here is the setup. A mixture-of-experts model contains many expert feed-forward networks, but each token is routed to only a small handful of them. Call the total number of experts E, and the number the router actually picks K. In Qwen 3.5, a token chooses eight experts out of two hundred and fifty-six. The experts that are not chosen may live in host memory, or in some slower tier, and so the runtime would love to transfer the experts it is about to need while the GPU is busy doing useful work on the current layer.
 
-* **Prediction:** identify future expert IDs before the native router reaches that layer.
-* **Lead time:** issue their transfers early enough that the bytes arrive before the expert is consumed.
+There are two possible sources of advantage here, and it matters that we keep them apart. The first is prediction: can we identify the future expert IDs before the native router reaches that layer? The second is lead time: can we issue those transfers early enough that the bytes actually arrive before the expert is consumed?
 
-Those are different problems. A predictor can be statistically accurate and still lose if its score costs more time than the transfer slack it creates. Conversely, a weak signal with a whole-token lead may be more useful than a stronger signal available only a few microseconds before use. The session therefore measured route quality, predictor cost, cache traffic, transfer behavior, and end-to-end token time as separate quantities.
+Those are genuinely different problems. A predictor can be statistically accurate and still lose, if computing its score costs more time than the transfer slack it creates. And the reverse is also true: a weak signal that arrives a whole token early can be worth more than a strong signal that shows up a few microseconds before it is needed. So the session measured route quality, predictor cost, cache traffic, transfer behaviour, and end-to-end token time as five separate quantities, and refused to collapse them into one number.
 
 ## A short chronology
 
-The first part of this continuation closed the earlier Qwen3 experiment. In the banked run `20260916T015147Z-e2e-qwen3-drift-a-08d6e1a088`, model `Qwen/Qwen3-30B-A3B-Instruct-2507` was pinned to revision `0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe`. Native routing was top-8, the residency cache was 32 experts, and the corrected arm used rank-32 `augmented_rows` correction at source layers 20–46 (27 layers); 20 earlier source layers kept the incumbent.
+The session came in two parts. The first part closed out an earlier experiment on Qwen 3, the thirty-billion-parameter model with three billion active. In that run, the native router was top eight, the residency cache held thirty-two experts, and the corrected arm applied a rank thirty-two correction at source layers twenty through forty-six, which is twenty-seven layers. The twenty earlier source layers kept the incumbent predictor.
 
-On that workload, the router arm averaged 42.049 ms/token, the corrected arm 41.947 ms/token, and the reactive LRU arm 48.917 ms/token. The corrected-minus-router effect was −0.246%, with a 95% interval of [−1.712%, +1.220%] over three request means. Thus the experiment supports a large LRU-versus-router difference on its own workload, but it does not establish a confident incremental predictor speedup. The historical closeout is in [`report.md`](../../research/results/predictor_hardware_20260915/report.md), with the earlier email receipt in [`predictor_hardware_email_receipt_20260916.json`](../../tools/predictor_hardware_email_receipt_20260916.json). Its email ID is distinct from the final Qwen3.5/Qwen3.8 email sent later at 15:39:39 UTC.
+The numbers from that closeout set the tone for everything after. The router-based prefetch arm averaged about forty-two point zero five milliseconds per token. The corrected arm averaged about forty-one point nine five. And the reactive least-recently-used arm, the plain cache with no prediction at all, averaged about forty-eight point nine. So the corrected arm was about a quarter of a percent faster than the router arm, with a ninety-five percent interval running from roughly minus one point seven percent to plus one point two percent, over three request means. That interval straddles zero. The experiment supports a large gap between reactive LRU and router-based prefetch on its own workload, but it does not establish a confident incremental speedup from the predictor.
 
-The main work then expanded the evidence ladder. We used a request-held-out Qwen3.5 capture to fit and select correction artifacts, replayed Qwen3.8 carrier and mixer variants, measured predictor heads on an H100, confirmed transfer-copy behavior, and ran three Qwen3.5 E2E breadth settings (`M=8,12,16`). The final generated report is [`qwen35_qwen38_final_report.md`](../../research/results/predictor_hardware_20260915/qwen35_qwen38_final_report.md).
+The second and main part of the session expanded the evidence ladder for two newer models, Qwen 3.5 and Qwen 3.8. We used a request-held-out capture from Qwen 3.5 to fit and select correction artifacts. We replayed carrier and mixer variants on Qwen 3.8. We measured predictor heads on an H100. We confirmed transfer-copy behaviour. And we ran three end-to-end breadth settings on Qwen 3.5, proposing eight, twelve, and sixteen candidate experts per token per layer.
 
-## MoE routing and the prediction problem
+## Routing, and where the prediction error lives
 
-At a target layer `t`, the native router receives a hidden state `h_t` and computes one score per expert. In a simplified notation, the router score vector is
+Let me set up the notation, because one decomposition explains the whole predictor programme.
 
-```text
-z_t = W_t h_t,       z_t in R^E
-```
+At a target layer, call it t, the native router receives a hidden state, h sub t, and computes one score per expert. In simplified notation, the score vector z sub t equals the router weight W sub t times the hidden state h sub t. That vector has one entry per expert. The native route is the IDs of the largest K entries, together with the router's normalised weights. Prefetching does not change this decision, ever. The native router remains the authority at the point of consumption. Speculation only proposes bytes to stage early.
 
-The native route is the IDs of the largest `K` entries of `z_t`, together with the router's normalized weights. Prefetching does not change this decision. The native router remains the authority at the point of consumption; speculation only proposes bytes to stage early.
+Now suppose we want to use an earlier source layer, call it s, to predict the route at the later target layer t. The deployed predictor, which keeps no extra state at all, computes what we call the anchor: A equals W sub t times h sub s. That is the target layer's router weight applied to the source layer's hidden state.
 
-Suppose a source layer `s` is used to predict a later target layer `t`. The deployed zero-extra-state anchor computes
+The exact target score differs from that anchor by a residual increment. Write d equals W sub t times the difference, h sub t minus h sub s. Then the true score is simply z sub t equals A plus d.
 
-```text
-A = W_t h_s.
-```
+This is the key to everything that follows. Cross-layer predictors can see A. What they cannot see is d, the increment the network will add between the source layer and the target layer, and that unseen increment is where their error lives. So every method in the session can be read as an attempt to estimate some useful component of d, subject to two conditions: the estimate has to transfer from the training requests to held-out requests, and its compute has to fit inside the lead-time budget.
 
-The exact target score differs by the residual increment
+## K versus M
 
-```text
-d = W_t (h_t - h_s),
-z_t = A + d.
-```
+Two letters are easy to confuse, so let me separate them explicitly. K is the native number of experts the model actually consumes. M is the proposed candidate breadth: the size of the shortlist we hand to admission and cache filtering. M is not the number of transfers that reach the backend. Resident experts, duplicate IDs, byte budgets, and slack admission can all reduce the actual issues below M.
 
-This decomposition is the key to the predictor work. Cross-layer predictors can see `A`, but the unseen increment `d` is where their error lives. A method can therefore be improved by estimating a useful component of `d`, provided the estimate transfers from training requests to held-out requests and its compute fits the lead-time budget.
+When M equals K, the proposed set has to be exactly right to contain the complete native set. Raising M increases the chance of covering all the native experts, but it can increase admitted bytes and lower candidate precision.
 
-### K versus M
-
-`K` is the native number of experts actually consumed by the model. `M` is the proposed candidate breadth. It is the size of the shortlist offered to admission and cache filtering; it is not necessarily the number of transfers that reach the backend. Resident experts, duplicate IDs, byte budgets, and slack admission can reduce actual issues below `M`. When `M=K`, the proposed set must be exactly right to contain the complete native set. Increasing `M` raises the chance of covering all native experts, but can increase admitted bytes and lower candidate precision.
-
-For Qwen3.8, native truth is top-10 (`K=10`). Therefore candidate full-set coverage at `M=8` is mathematically zero: eight IDs cannot contain ten distinct native IDs. This does not mean an M=8 predictor covers no cache misses. Cache-aware recall is a different question because some native experts may already be resident. The report keeps these measures separate.
+One consequence is worth stating up front, because it looks like a bug in the tables and is not. For Qwen 3.8, native truth is top ten. Therefore full-set coverage at M equals eight is mathematically zero: eight IDs cannot contain ten distinct native IDs. That does not mean an M-equals-eight predictor covers no cache misses. Cache-aware recall is a different question, because some of the native experts may already be resident. The report keeps those measures separate, and so will I.
 
 ## The timing pipeline
 
-The runtime sequence is easiest to understand as a timeline. This is a conceptual sequence; the exact overlap depends on the backend and readiness state.
+It helps to picture the runtime as a timeline. Early in the token, at the source layer, we make a prediction. That prediction goes through admission and a cache filter, and the surviving candidates are issued as speculative transfers. Their bytes then become progressively ready. Meanwhile, and independently, the model keeps progressing through its layers until the exact native router runs at the target layer. At the consumption deadline, one question is asked: is the required expert ready? If yes, we do the expert compute. If no, we fall back to a reactive miss fetch, and then compute.
 
-```mermaid
-flowchart LR
-    A[Early prediction at source s] --> B[Admission, cache filter, speculative issue]
-    B --> C[Bytes become progressively ready]
-    C --> E{At consumption deadline, required expert ready?}
-    N[Model progresses through layers] --> D[Exact native router at target t]
-    D --> E
-    E -- yes --> F[Expert compute]
-    E -- no --> G[Remaining reactive miss fetch]
-    G --> F
-```
+Two words in that description are doing careful work. Predicted means an ID was proposed. Ready means the required bytes had arrived, in the usable layout and synchronisation state, by the expert-consumption deadline. The native router does not wait for speculative bytes; model progress and speculation proceed independently, and a transfer that arrives after the router but before the expert is consumed can still help. A predicted expert can be too late, partially ready, evicted, or simply unnecessary. The implementation tracks readiness separately from prediction, so that a high recall number cannot be mistaken for hidden transfer time.
 
-The exact router and native weights are untouched. “Predicted” means an ID was proposed; “ready” means the required bytes had arrived in the usable layout and synchronization state by the expert-consumption deadline. The native router does not wait for speculative bytes: model progress and speculation proceed independently, and a transfer that arrives after the router but before expert consumption can still help. A predicted expert can be too late, partially ready, evicted, or unnecessary. The implementation tracks readiness separately from prediction so a high recall number cannot be mistaken for hidden transfer time.
+The available lead may be one layer, several layers, or a whole token. A later source layer has a better state but less time. An earlier source layer has more time but a less faithful state. This is why the session ranked methods by lead, and measured each target layer on its own, rather than collapsing all layers into one predictor score.
 
-The available lead may be one layer, several layers, or a whole token. A later source layer has better state but less time; an earlier source has more time but a less faithful state. This is why the session ranked methods by lead and measured each target layer rather than collapsing all layers into one predictor score.
+## The metrics, and why they are kept apart
 
-## Metrics and why they are separate
+Here are the route metrics, and the reason each one exists.
 
-The main route metrics are:
+Recall at M is the fraction of native expert IDs that appear in the candidate set: the size of the intersection of the candidates with the native set, divided by K.
 
-* **Recall@M:** fraction of native expert IDs present in the candidate set. For native top-k, `recall = |C_M ∩ T_K| / K`.
-* **Candidate precision:** fraction of proposed candidates that are native IDs, `|C_M ∩ T_K| / M`. Admission and resident filtering can make actual issues smaller than the proposed breadth; the offline precision definition is based on the proposed set.
-* **Full-set coverage:** probability that all native IDs are contained, `P(T_K ⊆ C_M)`. This is stricter than recall.
-* **Cache-aware miss coverage:** fraction of experts absent from the current resident cache that are correctly proposed and admitted early. This is the metric closest to avoiding reactive fetches.
-* **Issues and waste:** candidate issues per layer and issues that do not cover a cache miss. Waste can rise even when recall rises.
-* **Readiness:** whether an issued block has arrived sufficiently by the expert-consumption deadline. A candidate that arrives after that deadline is a miss for latency purposes; arrival after the exact route but before consumption can still help.
-* **Traffic ratio:** the final report uses `(candidate issues + remaining reactive misses) / matched reactive misses`. A ratio below one would mean fewer total expert transfers than the matched reactive baseline. Recall alone cannot tell us this.
+Candidate precision is the fraction of proposed candidates that are native: the same intersection, divided by M. Admission and resident filtering can make actual issues smaller than M, but the offline definition is based on the proposed set.
 
-For example, an M=16 method can have 95% recall while admitting many extra experts. An M=8 method can have lower recall but cover a useful fraction of the native set with fewer proposed bytes. The report therefore places quality and traffic beside each other and does not convert offline quality into an unmeasured speedup.
+Full-set coverage is the probability that every native ID is contained in the candidate set. It is stricter than recall.
 
-## Predictor families and equations
+Cache-aware miss coverage is the fraction of experts absent from the current resident cache that are correctly proposed and admitted early. Of all these, it is the metric closest to what we actually want, which is avoiding reactive fetches.
 
-The incumbent or router proxy is the anchor `A = W_t h_s`. The session screened several ways to correct its score.
+Issues and waste count the candidate issues per layer, and the issues that do not cover a cache miss. Waste can rise even as recall rises.
 
-### Bias correction
+Readiness is whether an issued block has arrived sufficiently by the consumption deadline. A candidate that arrives after that deadline is a miss for latency purposes.
 
-On training rows, calculate the projected increment `d_i = W_t(h_{t,i}-h_{s,i})`. The constant bias is
+And finally the traffic ratio. The final report defines it as candidate issues plus remaining reactive misses, divided by the matched reactive misses of the baseline. A ratio below one would mean fewer total expert transfers than the reactive baseline. Recall alone cannot tell you this.
 
-```text
-b = mean_i(d_i).
-```
+To see why the separation matters, consider an M-equals-sixteen method with ninety-five percent recall that admits many extra experts, next to an M-equals-eight method with lower recall that covers a useful fraction of the native set with far fewer proposed bytes. Quality and traffic have to sit side by side. The report never converts offline quality into an unmeasured speedup.
 
-The score is `A+b`. This captures a systematic direction shared across examples. It costs one E-vector add and can be fused into an existing score epilogue.
+## Predictor families
 
-### Velocity correction
+The incumbent, also called the router proxy, is just the anchor: A equals W sub t times h sub s. The session screened several ways to correct its score.
 
-The source hidden state has a local change from the previous layer, `h_s-h_{s-1}`. Project that velocity through the target router:
+The first is bias correction. On the training rows, compute the projected increment for each row, and take the mean. Call that mean b. The corrected score is A plus b. This captures a systematic direction shared across examples. It costs one vector add of length E, and it can be fused into an existing score epilogue.
 
-```text
-v_i = W_t(h_{s,i}-h_{s-1,i}).
-```
+The second is velocity correction. The source hidden state has a local change from the previous layer, h sub s minus h sub s-minus-one. Project that velocity through the target router to get v. After centring the training residual and the velocity, fit a single scalar gamma by least squares: the sum over rows of v times the residual, divided by the sum of v squared plus a small epsilon. The score becomes A plus b plus gamma times v. The method asks whether the direction the state just moved predicts the direction it will move next. It is cheap, but the held-out results show that a fixed velocity correction is not automatically better than the incumbent.
 
-After centering the training residual and velocity, the least-squares scalar is
+The third, and the main Qwen 3.5 candidate, is fused low-rank drift correction. It learns a small number of directions in the source state that correlate with the projected residual, then applies a rank-r correction along those directions. Three implementation forms have to be distinguished, because they cost different amounts.
 
-```text
-gamma = sum_i(v_i * residual_i) / (sum_i(v_i * v_i) + epsilon).
-```
+The algebraic form computes the anchor, projects the centred state through the learned basis U, and multiplies by the fitted matrix Gamma, as explicit extra work.
 
-The score becomes `A+b+gamma v`. The method asks whether the immediately observed direction predicts the next unseen direction. It is cheap, but the held-out results show that a fixed velocity correction is not automatically better than the incumbent.
+The augmented-rows form appends the correction features to the score computation itself. That reduces launch structure, but the remaining projection and epilogue work does not disappear.
 
-### Fused low-rank drift correction
+The dense, or precomposed, form folds the correction into an effective dense weight and bias. That is only possible when the correction basis uses the same input state as the anchor. The effective weight keeps the router's E-by-H shape, and the arm owns an extra precomposed copy and bias alongside the native router weights.
 
-The main Qwen3.5 candidate is a reduced-rank correction. It learns directions in the source state that correlate with the projected residual, then applies a small rank-`r` correction. Three implementation forms must be distinguished:
+None of these runs a separate full target router, and the hardware comparison keeps the three paths distinct.
 
-1. **Algebraic low-rank:** compute the anchor, project the centered state through `U`, and multiply by `Gamma` as explicit correction work.
-2. **`augmented_rows`:** append the correction features to the score computation, while retaining the remaining correction projection/epilogue work. This reduces launch structure but does not make all correction cost disappear.
-3. **Dense/precomposed fold:** fold the correction into an effective dense weight and bias when the correction basis uses the same input state as the anchor. The effective weight keeps the router's `[E,H]` shape; the arm owns an additional precomposed copy and bias alongside native router weights.
+Qwen 3.8 adds a wrinkle. Its hidden state is a four-stream hyper-connection carrier of width ten thousand two hundred and forty, whereas the router's input is two thousand five hundred and sixty wide. So the code tested several projections from that carrier before applying the target router weight. Source mix passes the carrier through the source layer's own mixer, producing the source layer's mixed input. Target mix passes it through the target layer's mixer, which uses more target-specific information, but reads the full carrier and pays the mixer's cost. Anchor is the ordinary router input used by the deployed proxy. Carrier keeps the full ten-thousand-wide state as the correction basis. Because that basis is four times wider than the router anchor, it cannot be collapsed into the same dense folded head, and a target mixer is a nonlinear transformation whose runtime work stays on the bill.
 
-None of these runs a separate full target router. The hardware comparison keeps these paths distinct.
-
-### Router proxy, source mix, target mix, anchor, and carrier
-
-For ordinary hidden-state captures, the router proxy is simply `W_t h_s`. For Qwen3.8, one capture stored a four-stream hyper-connection carrier of width 10,240 rather than the router's 2,560-dimensional input. The code tested several projections `P` from that carrier before applying `W_t`:
-
-* **Source mix:** pass the carrier through the source layer's own mixer, which produces the source layer's 2,560-dimensional mixed input.
-* **Target mix:** pass it through the target layer's own mixer. This uses more target-specific information but reads the full carrier and incurs mixer cost. The resident target-mixer BF16 weights are 13,127,680 B per layer; that is separate from the FP32 predictor-owned-byte totals in the microbench.
-* **Anchor:** the ordinary 2,560-dimensional router input used by the deployed proxy.
-* **Carrier:** retain the full 10,240-dimensional state as the correction basis. The carrier itself is not a learned `[512,10240]` weight; such a map would be a large stored artifact and is not the tested design. Because this basis is 10,240 wide while the router anchor is 2,560 wide, it cannot be collapsed into the same dense folded head. A target mixer is also a nonlinear/state transformation whose runtime work remains charged.
-* **Mean normed or stream controls:** project normalized streams or one stream to determine whether target-mix gains come from the learned mixer or merely from a useful state representation.
-
-The target-mix arms use layer-owned dense mixer weights already resident in an expert-streaming design. “Zero stored artifact” describes the added persistent weight artifact, while the state read width and runtime mixer work still matter.
+One phrase to hold on to: zero stored artifact. The target-mix arms use mixer weights that are already resident in an expert-streaming design, so they add no persistent weight artifact. But the state read width and the runtime mixer work still matter. Zero stored bytes does not mean zero cost.
 
 ## Low-rank correction, step by step
 
-This section derives the fitted form and gives shapes. Let a training batch at one source/target pair have `n` rows:
+Let me walk through the fit, with shapes, because the shapes are what make the precomposition identity work. Take a training batch at one source-target pair with n rows. The source states form a matrix of n by H. The target states are also n by H. The router weight is E by H.
 
-1. `H_s` has shape `[n, H]`, `H_t` has shape `[n, H]`, and `W_t` has shape `[E, H]`.
-2. Project the target increment:
+Step one, project the target increment: D equals the difference of the target and source states, times the router weight transposed. D is n by E.
 
-   ```text
-   D = (H_t - H_s) W_t^T,       shape [n, E].
-   ```
+Step two, take the column mean of D to get the bias b, of length E, and centre the residual: R equals D minus b.
 
-3. Compute `b = mean(D, axis=0)`, shape `[E]`, and center the residual:
+Step three, centre the correction basis. If the basis is the source state, X equals the source states minus their mean, n by H. For a Qwen 3.8 carrier correction, X can instead be n by ten thousand two hundred and forty, while the score anchor remains the narrower router input.
 
-   ```text
-   R = D - b,                   shape [n, E].
-   ```
+Step four, form the cross-covariance C equals X transposed times R, which is H by E, and take its singular vectors. Keep the first r left singular vectors as the basis U, of shape H by r.
 
-4. If the correction basis is the source state, center `X = H_s - mean(H_s)`, shape `[n,H]`. For a Qwen3.8 carrier correction, `X` can instead be `[n,10240]`; the score anchor remains a 2,560-dimensional router input.
-5. Form the cross-covariance `C = X^T R`, shape `[H,E]`, and compute its singular vectors. Keep the first `r` left singular vectors as `U`, shape `[H,r]`.
-6. Project each centered input into the learned subspace, `Z = XU`, shape `[n,r]`.
-7. Solve the regularized least-squares epilogue matrix. The implementation uses `epsilon = 1e-6 * (trace(Z^T Z) + 1)` and a linear solve, rather than explicitly forming an inverse:
+Step five, project each centred input into that subspace: Z equals X times U, giving n by r.
 
-   ```text
-   Gamma = solve(Z^T Z + epsilon I, Z^T R),
-   Gamma shape [r,E].
-   ```
+Step six, solve a regularised least-squares problem for the epilogue matrix. Gamma equals the solution of Z transposed Z plus epsilon times the identity, against Z transposed R. Gamma is r by E. The implementation sets epsilon to one millionth of the trace of Z transposed Z plus one, and uses a linear solve rather than forming an inverse.
 
-8. At inference, the algebraic correction is `Z Gamma`, shape `[n,E]`, and the final score is
+At inference, the correction is Z times Gamma, and the final score is A plus b plus Z Gamma.
 
-   ```text
-   score = A + b + Z Gamma.
-   ```
+Each requested rank gets its own independently fitted Gamma. A rank sixty-four Gamma is never truncated down to rank thirty-two, even though the nested bases share their leading columns.
 
-Each requested rank has its own independently fitted `Gamma`; a rank-64 `Gamma` is never truncated to rank 32, even when the nested `U` bases share their leading columns.
+Now the identity. For the same-basis case, with a scalar shrinkage alpha, the score is h times W transposed, plus alpha times the bracket b plus the centred h times U Gamma. Distribute, and the h terms collect: the score equals h times the quantity W transposed plus alpha U Gamma, plus alpha times the quantity b minus mu U Gamma, where mu is the mean we subtracted. So the effective weight is W transposed plus alpha U Gamma, and the effective bias is alpha times b minus mu U Gamma. The folded head still has the router's E-by-H weight shape. That is why a same-basis correction can be precomposed into one dense multiply, and why a ten-thousand-wide carrier basis cannot be silently treated as the narrower anchor.
 
-For the same-basis case, the dense/precomposed fold follows directly. With scalar shrinkage `alpha`,
+The important statistical choice is still the constrained cross-covariance fit. A full high-capacity fit can memorise request-specific drift and then fail on a new request. As a guard, the session also ran a shuffled-pairing control with a fixed seed: break the pairing between source state and increment, refit, and see whether the same structured correction survives. If it does, it is an artifact, not evidence that the source predicts the drift.
 
-```text
-S = h W_t^T + alpha [b + (h - mu) U Gamma]
-  = h [W_t^T + alpha U Gamma] + alpha [b - mu U Gamma].
+One more detail that prevents a double-counting mistake. Offline score shrinkage multiplies the fitted correction by a scalar. Qwen 3.5 selected a shrinkage of zero point seven five. The runtime then uses a lambda of one, because the selected artifact already contains that shrinkage. Applying the factor twice would be wrong.
 
-W_eff^T = W_t^T + alpha U Gamma
-b_eff    = alpha (b - mu U Gamma).
-```
+## Model geometry and the selected configurations
 
-Here `h:[n,H]`, `W_t^T:[H,E]`, `U:[H,r]`, `Gamma:[r,E]`, `mu:[H]`, and `b:[E]`. The effective folded head still has the router's `[E,H]` weight shape; it owns an additional precomposed copy/bias alongside native router weights, rather than changing the matrix dimensions. This identity explains why a same-basis correction can be precomposed, while a 10,240-wide carrier basis cannot be silently treated as the 2,560-wide anchor. The important statistical choice is still the constrained cross-covariance fit. A full high-capacity fit can memorize request-specific drift and fail on a new request. The session also ran a fixed-seed shuffled-pairing control: if the same structured correction survives after breaking the source/increment pairing, it is an artifact rather than evidence that the source predicts the drift.
+The expert payload size in bf16 comes from the three feed-forward projections: three times the hidden size times the intermediate size times two bytes.
 
-Offline score shrinkage multiplies the fitted correction by a scalar. Qwen3.5 selected shrinkage 0.75, and the runtime uses lambda 1 because the selected artifact already contains that shrinkage. This distinction prevents applying the same factor twice.
+For Qwen 3.5, the thirty-five-billion-parameter model with three billion active, that is two hundred and fifty-six experts, native top eight, forty layers, a hidden size of two thousand and forty-eight, and an intermediate size of five hundred and twelve, which works out to about six mebibytes per expert. For Qwen 3.8 Flash Next, it is five hundred and twelve experts, native top ten, forty-eight layers, a hidden size of two thousand five hundred and sixty, and an intermediate size of six hundred and forty, which is about nine point four mebibytes per expert.
 
-## Model geometry and selected configurations
+As a concrete memory check, holding eight Qwen 3.5 experts for one token and one layer is forty-eight mebibytes before cache metadata, alignment, and staging. That arithmetic is a payload example, not a measured transfer time, and not a claim about how many candidates admission will actually issue.
 
-Expert payload size for bf16 is computed from the three feed-forward projections:
+The Qwen 3.5 offline capture sampled three hundred and eighty-four decode steps per request after sixty-four warm-up steps. Three requests were used for fitting, two for validation, and three for test, with warm rows excluded from both fitting and scoring. The end-to-end runs, by contrast, use greedy sixty-four-token continuations. The selection metric was validation request-mean recall, with the smaller rank breaking ties. The globally selected policy was rank one hundred and twenty-eight at breadth eight, and rank sixty-four at breadths twelve and sixteen, all at shrinkage zero point seven five. That is a global rank policy; it is not a claim that every layer independently chose the same rank.
 
-```text
-expert_bytes = 3 * hidden_size * intermediate_size * 2.
-```
+The Qwen 3.8 carrier replays used two reciprocal request folds, five hundred and twelve decode steps per request with four hundred and eighty scored after a warm-up of thirty-two, nineteen target layers, and twenty stored state layers. The focused rank grid compared source mix, target-mix anchor, and target-mix carrier. The report labels the rank sixty-four target-mix result as descriptive, not as a whole-model deployment choice.
 
-| Model | Experts E | Native K | Layers | Hidden H | Intermediate I | Expert bytes |
-|---|---:|---:|---:|---:|---:|---:|
-| Qwen3.5-35B-A3B | 256 | 8 | 40 | 2048 | 512 | 6,291,456 B (6 MiB) |
-| Qwen3.8-Flash-Next | 512 | 10 | 48 | 2560 | 640 | 9,830,400 B (9.375 MiB) |
-
-For a concrete memory check, one Qwen3.5 expert costs `3 × 2048 × 512 × 2 = 6,291,456` bytes. Holding eight such experts for one token/layer would be 48 MiB before cache metadata, alignment, and staging. This arithmetic is a payload example, not a measured transfer time or a claim about how many candidates admission will issue.
-
-For Qwen3.5, the offline capture sampled 384 decode steps per request and warmed 64 steps. Fit requests were `req-003`, `req-006`, and `req-007`; validation used `req-002` and `req-005`; test used `req-000`, `req-001`, and `req-004`. Warm rows were excluded from fit/scoring. The Qwen3.5 E2E runs instead use greedy 64-token continuations. The selection metric was validation request-mean recall, with smaller rank breaking ties. The global selected policy is M=8 rank 128, M=12 rank 64, M=16 rank 64, all at shrinkage 0.75. This is a global rank policy; it is not a claim that every layer independently selected the same rank.
-
-Qwen3.8 carrier replays used two reciprocal request folds (`req-006` and `req-007`), 512 decode steps per request, 480 steps scored after warm 32, 19 target layers (`29..47`), and 20 stored state layers (`28..47`). Warm 32 was excluded from scoring only; training includes all 512 capture steps. The focused rank grid compared source-mix, target-mix anchor, and target-mix carrier. The Qwen3.8 report labels the rank-64 target-mix result as descriptive; it is not a whole-model deployment choice.
-
-The tuning grid screened ranks 16, 32, 64, and 128; shrinkages 0.50, 0.75, and 1.00; leads 1, 2, and 4; and cache capacities 96 and 256. The deployed headline remains lead 1. The Qwen3.5 selection rule was maximum validation request-mean recall, with smaller rank as the tie-break. Measured cost was not used to select the frozen rows; cost is reported afterward to decide whether a quality choice is practical.
+The full tuning grid screened ranks sixteen, thirty-two, sixty-four, and one hundred and twenty-eight; shrinkages of one half, three quarters, and one; leads of one, two, and four layers; and cache capacities of ninety-six and two hundred and fifty-six. The deployed headline remains lead one. And, importantly, measured cost was not used to select the frozen rows. Cost is reported afterwards, to decide whether a quality choice is practical.
 
 ## Offline results
 
-The following compact table reports `recall / full-set coverage / total transfer` from the final report, scoped to lead 1, Qwen3.5 cache-96 replay, and Qwen3.8 cache-32 replay. Qwen3.5 selected rows are test rows after validation selection. Recall is ordinary coverage of all native IDs; Qwen3.8 recall/full-set values are native-ID replay metrics, while the traffic denominator and total-transfer values use cache-aware replays. Neither model has a whole-model speedup interpretation here.
+Let me read the offline table as a story rather than a grid. Everything here is lead one, with the Qwen 3.5 replay at a cache of ninety-six and the Qwen 3.8 replay at a cache of thirty-two. For each method I will give recall, then full-set coverage, then the total-transfer ratio against the reactive baseline.
 
-| Model and method | M=8 | M=12 | M=16 |
-|---|---|---|---|
-| Qwen3.5 incumbent | 0.7853 / 0.1378 / 1.488× | 0.8934 / 0.5283 / 2.275× | 0.9321 / 0.6932 / 3.264× |
-| Qwen3.5 selected | 0.8009 / 0.1576 / 1.445× | 0.9069 / 0.5658 / 2.255× | 0.9434 / 0.7266 / 3.260× |
-| Qwen3.8 source-mix rank 64 | 0.6470 / 0 / 1.227× | 0.7968 / 0.1955 / 1.606× | 0.8604 / 0.3963 / 2.143× |
-| Qwen3.8 target-mix anchor rank 64 | 0.7251 / 0 / 1.124× | 0.8961 / 0.3958 / 1.467× | 0.9463 / 0.6629 / 2.013× |
-| Qwen3.8 target-mix carrier rank 64 | 0.7248 / 0 / 1.125× | 0.8952 / 0.3899 / 1.469× | 0.9464 / 0.6589 / 2.013× |
-| Qwen3.8 source-mix router control | 0.5868 / 0 / 1.308× | 0.7341 / 0.1181 / 1.692× | 0.8075 / 0.2957 / 2.217× |
-| Qwen3.8 target-mix router control | 0.7031 / 0 / 1.155× | 0.8706 / 0.3344 / 1.500× | 0.9281 / 0.6008 / 2.031× |
+Start with Qwen 3.5. The incumbent, at breadth eight, has recall of about seventy-nine percent, full-set coverage of about fourteen percent, and a transfer ratio of about one point four nine. The selected correction at breadth eight lifts that to about eighty percent recall and about sixteen percent full-set coverage, with a slightly lower transfer ratio of about one point four five. At breadth twelve, the incumbent has about eighty-nine percent recall and fifty-three percent coverage at a ratio of two point two eight; the selected method has about ninety-one percent recall and fifty-seven percent coverage at two point two six. At breadth sixteen, the incumbent reaches about ninety-three percent recall and sixty-nine percent coverage at a ratio of three point two six; the selected method reaches about ninety-four percent recall and seventy-three percent coverage at essentially the same ratio.
 
-The Qwen3.8 M=8 zero is the K=10 definition. Recall@M still measures the fraction of all native IDs in the proposed set; cache-aware miss coverage is reported in separate replay fields. At M=16, target-mix anchor reaches 0.9463 recall and 0.6629 full-set coverage, but the total-transfer ratio is still about 2.013×. That ratio explains why quality alone cannot justify a runtime claim.
+So the correction helps, consistently, by a percentage point or two of recall and a few points of full-set coverage, and it never makes traffic worse. But notice the ratios. Even at breadth eight, the prefetcher is moving about one and a half times the bytes of the reactive baseline, and at breadth sixteen more than three times.
 
-Two worked arithmetic examples make the table concrete. For Qwen3.8 target-mix anchor at M=8, recall 0.725 means about `0.725 × 10 = 7.25` native IDs per row on average; candidate precision is therefore `0.725 × 10 / 8 ≈ 0.906` when that field is defined. For the reported M=16 row, total transfer is `(7.381 issues + 0.809 remaining misses) / 4.069 matched reactive misses ≈ 2.013`. These are replay quantities, not physical bus measurements.
+Now Qwen 3.8, all at rank sixty-four. Source mix at breadth eight has about sixty-five percent recall and a ratio of one point two three. Target-mix anchor is much stronger: about seventy-three percent recall at breadth eight with a ratio of one point one two; about ninety percent recall and forty percent full-set coverage at breadth twelve; and about ninety-five percent recall and sixty-six percent coverage at breadth sixteen, with a ratio of about two point zero one. Target-mix carrier matches target-mix anchor almost exactly on every one of those numbers. The router-only controls sit below their corrected counterparts: source-mix control at about fifty-nine percent recall at breadth eight, target-mix control at about seventy percent.
 
-The earlier sampled versus greedy distinction also matters. The final Qwen3.5 offline artifact is sampled (`do_sample=true`, temperature 1, top-k 20, top-p .95) with fixed seed 20260916, while the Qwen3.5 E2E workload uses its own frozen runtime configuration. Do not pool the two as if they were one independent sample. Native IDs are the truth: BF16/FP32 conversion, normalization, and softmax tie behavior can make a reconstructed raw-logit top-k disagree with native IDs. The exact native tuple is preserved by the Qwen3.5 router discovery path and the trace keeps native logits, scores, and indices. A diagnostic oracle that reads the future target state is useful for a ceiling, but cannot be deployed. Target-norm reweighting was a control and was excluded from deployable selection.
+Remember that every Qwen 3.8 full-set coverage at breadth eight is zero by definition, because native truth is top ten. And notice the same lesson as before: at breadth sixteen, target-mix anchor reaches ninety-five percent recall and sixty-six percent full-set coverage, but the total-transfer ratio is still about two. That ratio is why quality alone cannot justify a runtime claim.
 
-The stock Hugging Face control also had output-token mismatches. The cause was not established, so it is descriptive and excluded from paired functional/speed comparisons. Exact token identity was established among the six staged arms (36 rows per M, 108 rows across M=8/12/16, three requests, and two passes); it was not established against the stock control, which had 12 mismatch cells across three breadths and two unique requests.
+Two worked examples make the table concrete. For Qwen 3.8 target-mix anchor at breadth eight, a recall of zero point seven two five means about seven and a quarter native IDs per row on average, out of ten. Candidate precision is therefore seven and a quarter out of eight, about ninety-one percent. For the breadth-sixteen row, total transfer is about seven point four issues plus about zero point eight remaining misses, divided by about four point one matched reactive misses, which comes to about two point zero one. These are replay quantities, not physical bus measurements.
+
+Three cautions about the offline numbers. First, the Qwen 3.5 offline artifact was generated with sampling, at temperature one, top-k twenty, top-p zero point nine five, with a fixed seed, while the end-to-end workload uses its own frozen greedy configuration; do not pool the two as if they were one sample. Second, native IDs are the truth. Conversions between bf16 and fp32, normalisation, and softmax tie behaviour can make a reconstructed raw-logit top-k disagree with the native IDs, so the trace keeps the native logits, scores, and indices, and a diagnostic oracle that peeks at the future target state is used only as a ceiling, never deployed. Third, the stock Hugging Face control produced output-token mismatches whose cause was not established, so it is reported descriptively and excluded from the paired comparisons. Exact token identity was established among the six staged arms, across one hundred and eight rows, three requests, and two passes; it was not established against the stock control.
 
 ## Hardware and transfer measurements
 
-The final hardware CSV contains 15 E2E rows and 276 predictor microbench rows. Transfer rows are in the final report and transfer receipt, not in that CSV. The H100 PCIe inventory was 114 SMs with Torch 2.6.0+cu124/CUDA 12.4 and Transformers 5.17. Qwen3.5 stage-2 E2E used bf16 model execution; the predictor head used FP32 with TF32 disabled. The process peak allocated figure was 76,147,564,544 B, including the resident-control scope. It is a process-memory measurement, not a physical bus measurement.
+The hardware side has three pieces: predictor microbenchmarks, transfer measurements, and the end-to-end runs, which get their own section.
 
-### Final predictor microbench rows
+The environment was an H100 PCIe with one hundred and fourteen streaming multiprocessors, Torch two point six with CUDA twelve point four, and Transformers five point seventeen. The Qwen 3.5 end-to-end runs used bf16 model execution, while the predictor head ran in fp32 with TF32 disabled. Peak allocated process memory was about seventy-six gigabytes, including the resident-control scope. That is a process-memory measurement, not a bus measurement.
 
-These rows are all from the final report's exact model/layer/breadth/rank strata. They use CUDA-graph path, with wall time including ID readback/synchronization. Input update time is excluded. CUDA-event timing includes enqueue gaps and is not kernel-only time. The rank-128 Qwen3.5 rows are at layer 1:
+The predictor microbenchmarks use the CUDA-graph path, with wall time including ID readback and synchronisation, and input update time excluded. CUDA-event timing includes enqueue gaps, so it is not kernel-only time.
 
-| Model, layer, rank | Method | M=8 wall / event µs | M=12 wall / event µs | M=16 wall / event µs | Owned bytes |
-|---|---|---:|---:|---:|---:|
-| Qwen3.5, layer 1, r128 | incumbent | 71.9125 / 28.70 | 73.521 / 29.14 | 71.402 / 29.08 | 2,097,152 |
-| Qwen3.5, layer 1, r128 | dense folded | 70.7955 / 30.13 | 72.135 / 30.89 | 74.6515 / 31.08 | 4,195,328 |
-| Qwen3.5, layer 1, r128 | low-rank two-stage | 79.435 / 39.96 | 80.158 / 40.21 | 80.099 / 40.44 | 3,286,016 |
+For Qwen 3.5 at layer one and rank one hundred and twenty-eight, the incumbent takes roughly seventy-two microseconds of wall time per call, with about twenty-nine microseconds of event time, across all three breadths. The dense folded head is essentially the same: about seventy-one to seventy-five microseconds wall, about thirty to thirty-one microseconds event. The algebraic low-rank two-stage path is slower, at about eighty microseconds wall and forty microseconds event. On owned bytes, the incumbent holds about two megabytes, the dense folded head about four point two, and the two-stage path about three point three.
 
-The final Qwen3.8 comparison is layer 29, rank 64, anchor/target-mix:
+For Qwen 3.8 at layer twenty-nine and rank sixty-four, the picture is starker. The incumbent takes about seventy-six microseconds. The target-router mixer control alone takes about one hundred and twelve. The low-rank two-stage path takes about one hundred and thirty. The dense folded head takes about one hundred and eighteen or nineteen. Owned bytes climb from about five megabytes for the incumbent to between thirty-one and thirty-seven megabytes for the target-mix variants, because the mixer's cost stays in those rows. Older source-mix or legacy target-mix microbenchmarks cannot be reused as final results. And to repeat the scope: these are resident replay measurements of the predictor head alone. They do not include the full model and do not establish end-to-end token speed.
 
-| Method | M=8 wall µs | M=12 wall µs | M=16 wall µs | Owned bytes |
-|---|---:|---:|---:|---:|
-| incumbent | 76.24 | 76.02 | 75.75 | 5,242,880 |
-| target-router mixer control | 112.02 | 112.34 | 112.59 | 31,498,240 |
-| low-rank two-stage | 130.30 | 130.80 | 131.29 | 32,296,960 |
-| dense folded | 118.63 | 118.32 | 118.46 | 36,743,168 |
+On methodology, the final predictor bench had thirty invocations and six hundred and ninety-six raw timing rows. Each row is twenty rounds of sixty-four samples, which are repeated measurements within one invocation, not one thousand two hundred and eighty independent observations. The report uses medians of the invocation summaries.
 
-The target-mix mixer cost remains in these rows. It is not valid to reuse an older source-mix or legacy target-mix microbench as a final result. Predictor microbench rows are resident replay measurements: they do not include the full model and do not establish E2E token speed.
+Now transfers. The exploratory screen covered two hundred and sixteen cells: one, two, or four host threads; one, two, or four requested streams; packed contiguous versus tiled payloads at two hundred and fifty-six kibibytes and one mebibyte; five rounds per cell. The confirmatory run then fixed one host thread, one active CUDA stream, and a one-mebibyte tile, for eighteen cells: three strategies, three candidate sizes, two models, over thirty paired rounds.
 
-The final predictor bench has 30 invocations and 696 raw timing rows. A row contains 20 rounds × 64 samples; those samples are repeated measurements within an invocation, not 1,280 independent observations. The report uses medians of invocation summaries. Wall timing includes ID readback and synchronization, while input update time is excluded. CUDA-event timing includes enqueue gaps and therefore is not a kernel-only profile. Reported peak workspace excludes graph pools, input buffers, and persistent weights.
+The confirmation result is narrow but clean. On Qwen 3.5, batched contiguous copies were about three point six percent faster than baseline at breadth eight, about two point six percent faster at breadths twelve and sixteen, with tight intervals. Tiled copies were slower, by about eleven to fourteen percent. On Qwen 3.8, batched contiguous was one to two percent faster, with the breadth-sixteen interval just touching zero, and tiled was again about twelve percent slower. For scale, a baseline copy at Qwen 3.5 breadth eight took just under one millisecond, and about one point nine milliseconds at breadth sixteen.
 
-### Transfer screen and confirmation
+And here is the caveat that keeps this honest. Those payloads were synthetic byte buffers sized like bf16 expert payloads. They were not actual model expert gathers. The result supports a narrow copy-path observation, not a GPU or model speedup claim. Also, command coalescing in this context means merging software transfer commands, which is a different thing from warp-level GPU memory coalescing. The CPU replay merged only two commands out of more than forty-one thousand fetches, about five thousandths of a percent, and no GPU memory-coalescing gain was measured.
 
-The exploratory transfer screen covered 216 cells: host threads 1/2/4 × requested streams 1/2/4 × packed/contiguous versus tiled payloads at 256 KiB and 1 MiB, with five rounds per cell. Packed transfer itself used one active stream. The confirmatory run fixed host threads to 1, one active CUDA stream, and a 1 MiB tile for 18 cells: three strategies (baseline, batched contiguous, tiled) × three candidate sizes × two models, over 30 paired rounds. The two comparison strategies produce 12 comparison rows against the baseline.
+## Qwen 3.5 end-to-end results
 
-| Model | M | Strategy | Baseline µs | Candidate µs | Relative effect | 95% CI |
-|---|---:|---|---:|---:|---:|---|
-| Qwen3.5 | 8 | batched contiguous | 978.22 | 941.83 | −3.597% | [−4.781, −2.412]% |
-| Qwen3.5 | 8 | tiled | 978.22 | 1099.60 | +12.555% | [+7.666, +17.444]% |
-| Qwen3.5 | 12 | batched contiguous | 1436.32 | 1398.36 | −2.641% | [−2.822, −2.460]% |
-| Qwen3.5 | 12 | tiled | 1436.32 | 1598.02 | +11.259% | [+10.790, +11.728]% |
-| Qwen3.5 | 16 | batched contiguous | 1901.46 | 1850.86 | −2.661% | [−2.750, −2.572]% |
-| Qwen3.5 | 16 | tiled | 1901.46 | 2161.75 | +13.688% | [+9.401, +17.975]% |
+This is the section the whole session was built to reach. Three end-to-end runs tested breadths of eight, twelve, and sixteen. The router-based prefetch arm uses the same breadth as the corrected arm, and the reactive LRU arm with a ninety-six-expert cache is the baseline. In what follows, a positive effect means the first arm is slower.
 
-The corresponding Qwen3.8 confirmation rows were: M=8 batched contiguous −1.744% [−1.852, −1.635]% and tiled +12.079% [+11.921, +12.237]%; M=12 batched contiguous −2.062% [−2.570, −1.554]% and tiled +11.774% [+10.845, +12.703]%; M=16 batched contiguous −1.026% [−2.372, +0.320]% and tiled +12.045% [+11.831, +12.258]%. Relative effects are means of 30 paired-round percentage changes with t(29) intervals; they need not equal ratios of displayed means.
+Router-based prefetch versus reactive LRU: at breadth eight, the router arm was about five point one percent slower, with an interval of roughly four point three to five point nine. At breadth twelve, about seven point five percent slower. At breadth sixteen, about eight point eight percent slower. So on this workload, prefetching with the plain router proxy loses to a reactive cache, and it loses by more as breadth grows.
 
-These payloads were synthetic uint8 byte buffers sized like corresponding bf16 expert payloads; they were not actual model expert gathers. The result supports a narrow copy-path observation, not a GPU or model speedup claim. “Command coalescing” here means merging software transfer commands. It is distinct from warp-level GPU memory coalescing, which concerns how adjacent thread accesses form memory transactions. The CPU replay merged only 2 commands out of 41,133 fetches (~0.005%); no GPU memory-coalescing gain was measured.
+Corrected precomposed versus router: at breadth eight, the corrected arm was about zero point one two percent faster, with an interval from minus zero point two two to minus zero point zero two. At breadth twelve, about zero point four percent slower, with an interval spanning zero. At breadth sixteen, about zero point zero eight percent faster, with a tiny interval that excludes zero. These are real but minuscule effects.
 
-## Qwen3.5 end-to-end results
+Corrected precomposed versus reactive LRU: about five percent slower at breadth eight, about seven point nine percent slower at breadth twelve, about eight point seven percent slower at breadth sixteen.
 
-Three Qwen3.5 stage-2 E2E runs tested M=8, M=12, and M=16. The router-based prefetch arm uses the same M as the corrected arm; the reactive `RES-LRU-96` arm is the comparison baseline. Positive effect means the left arm is slower.
+Each interval uses three request means and the t distribution with two degrees of freedom, so the unit of inference is the request, not the token. The tiny corrected-versus-router effects at breadths eight and sixteen have intervals excluding zero, but they are small, workload-specific comparisons with n equal to three. Breadth twelve also carried substantial drift between passes, with a pooled coefficient of variation of nearly seven percent; it is reported descriptively rather than rejected by a post-hoc threshold. None of this offsets the direct measured result: every corrected arm is slower than reactive LRU.
 
-| M | Router vs reactive LRU | Corrected precomposed vs router | Corrected precomposed vs reactive LRU |
-|---:|---:|---:|---:|
-| 8 | +5.124% [4.338, 5.911] | −0.121% [−0.220, −0.022] | +4.997% [4.198, 5.795] |
-| 12 | +7.466% [5.232, 9.699] | +0.394% [−1.251, 2.039] | +7.885% [6.682, 9.087] |
-| 16 | +8.759% [7.248, 10.270] | −0.083% [−0.110, −0.056] | +8.668% [7.140, 10.195] |
+Precomposition does matter, though. The raw augmented-rows corrected arm was about four percent slower than the router arm at every breadth, and between nine and thirteen percent slower than LRU. Folding the correction into the dense head removes most of that extra cost. It just does not create an LRU win.
 
-Each interval uses three request means and `t(df=2)=4.30265`; the unit of inference is the request, not each token. The tiny precomposed-versus-router effects at M=8 and M=16 have intervals excluding zero in this run, but they are small, workload-specific comparisons with n=3. M=12 includes substantial pass drift: pooled CV 6.882%, with pass 1 minus pass 0 of −15.37 ms, −11.65 ms, and −6.63 ms for prose, code, and structured requests. The result is reported descriptively rather than rejected by a post-hoc threshold. These effects do not offset the direct measured result that every corrected arm is slower than reactive LRU.
+Meanwhile the engine counters show the quality movement is real. In-engine recall for the corrected arm was about eighty-one percent versus eighty percent for the router at breadth eight, about ninety-two versus ninety-one at breadth twelve, and about ninety-five versus ninety-four at breadth sixteen. Yet fetched-byte totals were about one point one three, one point three nine, and one point seven five times those of the same-breadth LRU arm. These are engine software counters across six request-and-pass cells, including prefill. They are not PCIe or HBM bus traffic, and they do not imply that the predictor improved token latency.
 
-The raw augmented-row corrected arm is more expensive than the precomposed twin. At M=8 it was 4.016% slower than the router and 9.345% slower than LRU; at M=12 it was 4.213% slower than router and 11.991% slower than LRU; at M=16 it was 3.668% slower than router and 12.748% slower than LRU. Precomposition removes most of that extra head cost, but it does not create an E2E LRU win.
+Noise diagnostics were descriptive: pooled coefficients of variation of about zero point one five percent at breadth eight, about six point nine percent at breadth twelve, and about zero point three five percent at breadth sixteen, with no preregistered acceptance threshold. The earlier failed diagnostic attempt and failed provider attempts remain in the evidence trail rather than being silently replaced.
 
-The engine counters show a real quality movement: corrected M=8 in-engine recall was 0.8097 versus router 0.7981; M=12 was 0.9187 versus 0.9071; M=16 was 0.9522 versus 0.9435. Yet fetched-byte totals were 1.130×, 1.391×, and 1.748× of same-M LRU respectively. These are engine software counters across six request/pass cells, including prefill. They are not PCIe or HBM bus traffic, and they do not imply that the predictor improved token latency.
-
-Noise diagnostics were descriptive. M=8 had pooled ALLRES-BF16 CV 0.146%, M=12 6.882%, and M=16 0.348%; no preregistered acceptance threshold existed for these runs. The earlier failed diagnostic attempt and failed provider attempts remain in the evidence trail rather than being silently replaced.
-
-Qwen3.8 whole-model E2E was not claimed. Its approximately 360 GB checkpoint, including more than 110 GiB of non-expert weights, does not fit the current single-GPU resident harness. Its measured head, cache replay, and transfer evidence are useful for design screening; they cannot be promoted to a model-level speedup.
+And Qwen 3.8 whole-model end-to-end was not claimed at all. Its checkpoint is roughly three hundred and sixty gigabytes, including more than one hundred and ten gibibytes of non-expert weights, which does not fit the current single-GPU resident harness. Its head, cache-replay, and transfer evidence are useful for design screening. They cannot be promoted to a model-level speedup.
 
 ## Engineering repairs and reproducibility
 
-The session spent substantial effort making results auditable. Every run has a config, seed, model revision, source identity, and result receipt. The final reducer checks the configured E2E identity, token, artifact, and noise fields, pairs rows inside each request/pass cell, and refuses to fall back to an older run. Configs are frozen once they produce evidence. Corrections go into new configs; artifact-side hashes and launch records preserve the reconstruction key. The final head and transfer receipts have remote artifact hash verification; the E2E lifecycle did not have a declared remote artifact digest, so its local artifacts were independently hashed and checked for source/config membership rather than described as remotely digest-verified.
+A large share of the session went into making the results auditable, and the repair chronology is part of the result. Every run has a config, a seed, a model revision, a source identity, and a result receipt. The final reducer checks the configured identity, token, artifact, and noise fields, pairs rows inside each request-and-pass cell, and refuses to fall back to an older run. Configs are frozen once they produce evidence; corrections go into new configs, and artifact-side hashes and launch records preserve the reconstruction key. The final head and transfer receipts carry remote artifact hash verification. The end-to-end lifecycle did not have a declared remote digest, so its local artifacts were independently hashed and checked for source and config membership rather than described as remotely verified.
 
-Several practical catches mattered:
+Several practical catches mattered. The stock Hugging Face control produced token mismatches and was excluded from paired comparisons. A cache-aware replay and a runtime coalescing replay have different scopes, so their counters must not be asserted equal. Predictor-owned bytes, workspace bytes, graph pools, persistent model weights, and physical bus traffic are five different memory quantities. The packed contiguous copy was verified byte-exact for its synthetic source and destination, which says nothing about an arbitrary gather until the real manifest path is exercised. Lifecycle records bind a batch to the exact config and source, and the H100 instances and ephemeral keys were deleted once the artifacts were banked.
 
-* The stock HF control produced output-token mismatches; the cause was not established, so it was excluded from paired functional and speed comparisons.
-* A cache-aware replay and a runtime coalescing replay have different scopes; their counters must not be asserted equal.
-* Predictor-owned bytes, workspace bytes, graph pools, persistent model weights, and physical bus traffic are different memory quantities.
-* `packed_contiguous` was verified byte-exact for its synthetic source and destination. That says nothing about an arbitrary gather until the real manifest path is exercised.
-* Lifecycle records bind a batch to the exact config and source. The H100 instances and ephemeral keys were deleted after artifacts were banked; no managed instances remain.
+The code repairs included teaching the native Qwen 3.5 discovery path to recognise the actual top-k router tuple and preserve native logits, scores, and indices, rather than guessing tuple shapes, since DeepSeek's layout differs. Bf16 hidden exports now keep their bit patterns with explicit dtype provenance. The capture path was pinned to Transformers five point seventeen and made portable across file naming conventions. Fit-only coefficient exports read frozen fits and selection metadata only, and are hash-checked. An interrupted test-scoring resume reads held-out states and binds the checkpoint plus the frozen fit and selection hashes without refitting. The shared hyper-connection, candidate, and packed device-to-host handling were all repaired before the final measurement.
 
-The repair chronology is part of the result. The native Qwen3.5 discovery path was changed to recognize the actual `Qwen3_5MoeTopKRouter` native tuple and preserve native logits, scores, and indices; it does not guess tuple shapes (DeepSeek's tuple layout differs). BF16 hidden exports retain bit patterns with explicit dtype provenance. The capture path was pinned to Transformers 5.17 and made portable across Windows NPZ filenames. Fit-only early coefficient exports read frozen fits and selection metadata only; those exports are hash-checked, byte-identical double emissions with additive installation. A separate interrupted test-scoring resume reads held-out states for evaluation and binds checkpoint plus frozen fit/selection hashes without refitting. The lifecycle recorder now binds a batch ID to `first_member + '+' + (member_count - 1)` and records exact per-config member/hash bindings. Shared hyper-connection, candidate, and packed D2H handling were repaired before the final measurement. Luna implemented these session changes and the root agent independently reviewed and orchestrated the final evaluation.
+For context on the Qwen 3.8 carrier mixer, since it matters for the cost argument: it is not a linear reshape. With four streams, the code first applies grouped RMS normalisation and a learned weight, producing a concatenated state of width ten thousand two hundred and forty. It then computes a low-dimensional projection through a SiLU, a sigmoid gate from that projection, reshapes the state and the gate to four streams of two thousand five hundred and sixty, and averages the gated streams. That is nonlinear work, which is why target-mix cost stays on the bill and cannot be absorbed into the same linear folded head as the anchor.
 
-For context, the Qwen3.8 carrier mixer is not a linear reshape. With four streams, the code first applies grouped RMS normalization and a learned weight: `n = groupedRMSNorm(h) * (1+w)`, with concatenated `n` width 10,240. It then computes `low = silu((n @ D^T)/4)`, `gate = sigmoid(low @ U^T)`, reshapes `n` and `gate` to `[rows, 4, 2560]`, and averages `gate*n` over the four streams. The exact parameter orientation is defined in `capture/hyper_connection.py`; the point for this lecture is that target-mix work stays in the measured cost and cannot be absorbed into the same linear folded head as a 2,560-dimensional anchor.
-
-The archive snapshot before this lecture was commit `32f885e`, ZIP size 671,287,623 B, SHA-256 `e2d54100adf5b91b0bf83f3537f73101dc3cf2997f266d8bfcf0b40d39884918`, with 2,512 members and 2,214 hashed members. Those values describe the prior final research snapshot; they are not the current archive after adding this lecture. The cumulative recorded project cost estimate is `$171.797758` against the authorized `$200` cap. It is a project ledger estimate, not a bill and not the charge for this lecture session.
-
-The final Qwen3.5/Qwen3.8 report email was sent to `arjunghumman1995@gmail.com` at 15:39:39 UTC with Gmail ID `1a0aadfa6c6bb621`. This lecture is the companion lecture; the separate email receipt records that delivery. The empty legacy sibling shell remains because automatic review rejected its removal without a specific reason; that review outcome is recorded rather than retried.
-
-Reproducibility has two levels. The final report can be regenerated from the banked compact evidence included in the prior research archive: receipts, CSVs, selected coefficient artifacts, source code, and provenance. Re-running the original capture and fits requires the excluded raw hidden-state/trace inputs, model weights, and suitable GPU access. The archive does not contain every raw training input or the model checkpoints. This lecture's archive counts and digest above refer only to the prior research closeout snapshot; the root agent will update the single ZIP after adding this lecture and its new email receipt.
+Reproducibility has two levels. The final report can be regenerated from the banked compact evidence: receipts, CSVs, selected coefficient artifacts, source code, and provenance. Re-running the original capture and fits requires the excluded raw hidden-state inputs, the model weights, and suitable GPU access, which the archive does not contain. The cumulative recorded project cost estimate was about one hundred and seventy-two dollars against a two-hundred-dollar cap; that is a ledger estimate, not a bill.
 
 ## What the results mean
 
 The session supports five conclusions.
 
-First, predictor quality and runtime benefit are separate. Qwen3.5 correction improves offline recall and slightly improves the corrected engine counters, but its measured E2E arms are still slower than reactive LRU. Candidate transfer traffic and fixed issue overhead are plausible explanations, as is the fact that LRU already captures repeated routes with a long token-scale lead. Physical bus saturation and the exact contribution of each latency component were not established: the PCIe witness used invalid sampling.
+First, predictor quality and runtime benefit are separate things. The Qwen 3.5 correction improves offline recall and slightly improves the in-engine counters, but every measured corrected arm is still slower than reactive LRU. Candidate transfer traffic and fixed issue overhead are plausible explanations, and so is the fact that LRU already captures repeated routes with a long, token-scale lead. Physical bus saturation and the exact contribution of each latency component were not established; the PCIe witness used invalid sampling.
 
-Second, the strongest Qwen3.8 offline rows are target-mix rows, but they pay mixer/head work and still have a transfer ratio above one. A target-mix carrier row can match the quality of target-mix anchor, yet it reads the full carrier. The state representation, stored artifact, and runtime compute must all be charged.
+Second, the strongest Qwen 3.8 offline rows are the target-mix rows, but they pay mixer and head work and still carry a transfer ratio above one. A target-mix carrier row can match target-mix anchor on quality, yet it reads the full carrier. The state representation, the stored artifact, and the runtime compute must all be charged.
 
-Third, rank is a hardware/software decision. Rank 128 can help Qwen3.5 M=8 offline, while rank 64 is the selected validation row at M=12 and M=16. Selection itself used held-out request-mean recall; measured head cost was applied afterward when judging practicality. The correct deployment decision combines held-out behavior with measured head cost, rather than treating rank in isolation.
+Third, rank is a hardware-and-software decision. Rank one hundred and twenty-eight helps Qwen 3.5 at breadth eight offline, while rank sixty-four is the selected row at breadths twelve and sixteen. Selection used held-out recall, and measured head cost was applied afterwards to judge practicality. The correct deployment decision combines held-out behaviour with measured cost, rather than treating rank in isolation.
 
-Fourth, transfer layout matters, but the measured transfer result is narrow. A synthetic packed contiguous copy can be a few percent faster; tiling can be substantially slower. The data path still needs a real manifest, arbitrary-ID handling, coalescing, event dependencies, and consumer-safe cancellation before the number becomes a runtime claim.
+Fourth, transfer layout matters, but the measured transfer result is narrow. A synthetic packed contiguous copy can be a few percent faster, and tiling can be substantially slower. The data path still needs a real manifest, arbitrary-ID handling, coalescing, event dependencies, and consumer-safe cancellation before that number becomes a runtime claim.
 
-Fifth, the negative result is useful. It tells us that improving a predictor's score is insufficient when the reactive cache and transfer schedule already dominate. The next design must optimize the entire chain: lead time, cache state, admission, readiness, transfer commands, and native compute.
+Fifth, the negative result is useful. It tells us that improving a predictor's score is not enough when the reactive cache and the transfer schedule already dominate. The next design has to optimise the entire chain: lead time, cache state, admission, readiness, transfer commands, and native compute, together.
 
-## Unexecuted next experiments
+## What comes next
 
-These are priorities, not completed results:
+These are priorities, not completed results.
 
-1. Run a real Qwen3.5 E2E comparison with a preregistered noise threshold and enough independent requests to resolve sub-percent corrected-versus-router effects.
-2. Instrument physical PCIe/HBM traffic and expert readiness timestamps so software speculative-byte counters can be separated from actual bus movement.
-3. Exercise packed/coalesced transfer on arbitrary manifest-selected expert blocks, including non-contiguous IDs and cancellation.
-4. Measure a real dependent-fetch round trip and a priority DMA path; the synthetic transfer screen cannot provide those values.
-5. Test Qwen3.8 with a sharded or multi-GPU harness that can hold the approximately 360 GB model, preserving exact token identity and the carrier/mixer provenance.
-6. Re-evaluate M and rank jointly under measured bandwidth slack. A method should be admitted only when its candidate bytes can fit before the consumer deadline.
-7. Compare source-mix and target-mix under a fixed predictor budget, charging mixer compute, carrier read bytes, cache state, and readiness rather than comparing recall alone.
+One: run a real Qwen 3.5 end-to-end comparison with a preregistered noise threshold and enough independent requests to resolve sub-percent corrected-versus-router effects.
+
+Two: instrument physical PCIe and HBM traffic and expert readiness timestamps, so that software speculative-byte counters can be separated from actual bus movement.
+
+Three: exercise packed and coalesced transfer on arbitrary manifest-selected expert blocks, including non-contiguous IDs and cancellation.
+
+Four: measure a real dependent-fetch round trip and a priority DMA path; the synthetic screen cannot provide those.
+
+Five: test Qwen 3.8 with a sharded or multi-GPU harness that can hold the full model, preserving exact token identity and the carrier-mixer provenance.
+
+Six: re-evaluate breadth and rank jointly under measured bandwidth slack. A method should be admitted only when its candidate bytes can fit before the consumer deadline.
+
+Seven: compare source mix and target mix under a fixed predictor budget, charging mixer compute, carrier read bytes, cache state, and readiness, rather than comparing recall alone.
 
 ## Glossary
 
-| Term | Meaning |
-|---|---|
-| Anchor / router proxy | Early score `W_t h_s` computed from an earlier state. |
-| Carrier | Qwen3.8 four-stream hyper-connection state, width 10,240. |
-| Candidate breadth M | Number of speculative expert IDs proposed per token/layer. |
-| Native K | Number of experts selected by the model's exact router. |
-| Full-set coverage | Probability every native ID is in the candidate set. |
-| Lead | Distance between prediction source and target consumption point. |
-| Readiness | Whether required bytes are present in a consumer-usable state. |
-| Reactive miss | A required expert absent or not ready when native routing asks for it. |
-| Shrinkage | Scalar damping of a fitted score correction; Qwen3.5 selected 0.75 offline. |
-| Rank r | Number of learned state directions used by the low-rank correction. |
-| E2E | End-to-end token workload including model execution and transfer path. |
-| Microbench | Isolated predictor or transfer measurement with a narrower scope. |
+A few terms, briefly, in case any slipped past.
 
-## Source map
-
-The most useful evidence and implementation references are:
-
-* [`qwen35_qwen38_final_report.md`](../../research/results/predictor_hardware_20260915/qwen35_qwen38_final_report.md) — generated final comparison, offline tables, E2E effects, hardware scope, and limitations.
-* [`qwen35_qwen38_final_report.receipt.json`](../../research/results/predictor_hardware_20260915/qwen35_qwen38_final_report.receipt.json) — input/output hashes, model revisions, seed, and report claims.
-* [`qwen35_qwen38_final_comparison.csv`](../../research/results/predictor_hardware_20260915/qwen35_qwen38_final_comparison.csv) — machine-readable quality and cache traffic rows.
-* [`qwen35_qwen38_final_hardware.csv`](../../research/results/predictor_hardware_20260915/qwen35_qwen38_final_hardware.csv) — 15 paired E2E rows and 276 predictor microbench rows; transfer confirmation rows are in the final report/receipt.
-* [`method_metrics.md`](../../research/results/novel_predictor_tuning_20260916/method_metrics.md) — expanded offline method tables and provenance statements.
-* [`novel_predictor_screen.py`](../../tools/novel_predictor_screen.py) — fitter, score-space corrections, carrier projection definitions, cost model, and controls.
-* [`hyper_connection.py`](../../capture/hyper_connection.py) — Qwen3.8 carrier mixer implementation and tensor orientation.
-* [`novel_predictor_tuning.py`](../../research/novel_predictor_tuning.py) — reducer that copies banked metrics into compact tables; it is not the fitter.
-* [`result.json`](../../experiments/results/20260916T-analysis-qwen35-qwen38-final-report-v5/result.json) — final analysis receipt and claims.
-* [`ENGINEER_HANDOFF.md`](../../ENGINEER_HANDOFF.md) — current environment, model pins, lifecycle, archive, and next-entry guidance.
-* [`report.md`](../../research/results/predictor_hardware_20260915/report.md) — earlier Qwen3 closeout and E2E gate details.
-* [`CODEBASE_ARCHITECTURE.md`](../20_software/CODEBASE_ARCHITECTURE.md) — controller, predictor, cache, manifest, backend, and testing contracts.
-* [`EMPIRICAL_VALIDATION_PLAN.md`](../70_execution/EMPIRICAL_VALIDATION_PLAN.md) — project hypotheses, evidence gates, and the historical distinction between nominal simulation and measured runs.
+The anchor, or router proxy, is the early score computed by applying the target router's weight to an earlier layer's state. The carrier is Qwen 3.8's four-stream hyper-connection state, ten thousand two hundred and forty wide. Candidate breadth, M, is the number of speculative expert IDs proposed per token per layer. Native K is the number of experts the model's exact router selects. Full-set coverage is the probability that every native ID is in the candidate set. Lead is the distance between the prediction source and the target consumption point. Readiness is whether the required bytes are present in a consumer-usable state. A reactive miss is a required expert that is absent, or not ready, when native routing asks for it. Shrinkage is a scalar damping of a fitted correction; Qwen 3.5 selected three quarters. Rank r is the number of learned state directions used by the low-rank correction. End to end means the full token workload, including model execution and the transfer path. A microbench is an isolated predictor or transfer measurement with a narrower scope.
 
 ## Self-check questions
 
-1. For Qwen3.8, why is M=8 full-set coverage zero while recall@8 remains a valid ordinary native-ID coverage metric? How is that different from cache-aware miss coverage?
-2. Write the score decomposition `z_t = W_t h_s + W_t(h_t-h_s)`. Which term is unseen by the anchor?
-3. Why can a predictor with higher recall still increase total transfer?
-4. In the low-rank fit, what are the shapes of `D`, `U`, `Z`, and `Gamma`?
-5. Why does target-mix carrier quality require charging state-read bytes and mixer work even when stored artifact bytes are zero?
-6. Why are the Qwen3.5 offline sampled rows not interchangeable with the E2E workload rows?
-7. What does a negative corrected-versus-router ITL interval establish, and what does it fail to establish with n=3 requests?
-8. Why cannot the packed contiguous transfer result be reported as a model-level GPU gain?
-9. Which native decision remains authoritative in the runtime pipeline?
-10. What additional evidence is required before Qwen3.8 can receive a whole-model E2E claim?
+Ten questions, with brief answers after each.
 
-### Answers in brief
+One. For Qwen 3.8, why is full-set coverage at breadth eight zero while recall at eight is still a valid metric, and how does that differ from cache-aware miss coverage? Because eight proposed IDs cannot contain ten native IDs; recall still measures the overlap, while cache-aware miss coverage conditions on which IDs are already resident.
 
-1. Eight proposed IDs cannot contain ten native IDs, so full-set coverage is zero; recall@8 still measures native-ID overlap, while cache-aware miss coverage conditions on which IDs are resident. 2. The increment `W_t(h_t-h_s)` is unseen. 3. Extra candidates cost bytes and commands, and cache state changes the value of each candidate. 4. `D:[n,E]`, `U:[H,r]`, `Z:[n,r]`, `Gamma:[r,E]`. 5. Zero persistent artifact does not mean zero reads or compute. 6. They have different sampler/workload scopes and independence units. 7. It describes a small paired effect on this workload; it is not a broad speedup proof. 8. The payload is synthetic and contiguous, unlike arbitrary expert gathers. 9. The exact native router and its native weights. 10. A fitting sharded/multi-GPU harness with exact provenance and paired E2E controls.
+Two. Write the score decomposition: the target score equals the anchor plus the projected increment. Which term is unseen by the anchor? The increment, the router weight applied to the difference between the target and source states.
+
+Three. Why can a predictor with higher recall still increase total transfer? Extra candidates cost bytes and commands, and the cache state changes the value of each candidate.
+
+Four. In the low-rank fit, what are the shapes of D, U, Z, and Gamma? D is n by E, U is H by r, Z is n by r, and Gamma is r by E.
+
+Five. Why does target-mix carrier quality require charging state-read bytes and mixer work even when stored artifact bytes are zero? Because zero persistent artifact does not mean zero reads or zero compute.
+
+Six. Why are the Qwen 3.5 offline sampled rows not interchangeable with the end-to-end workload rows? They have different sampler and workload scopes, and different units of independence.
+
+Seven. What does a negative corrected-versus-router interval establish, and what does it fail to establish with three requests? It describes a small paired effect on this workload; it is not a broad speedup proof.
+
+Eight. Why can the packed contiguous transfer result not be reported as a model-level GPU gain? The payload is synthetic and contiguous, unlike arbitrary expert gathers.
+
+Nine. Which native decision remains authoritative in the runtime pipeline? The exact native router and its native weights.
+
+Ten. What additional evidence is required before Qwen 3.8 can receive a whole-model end-to-end claim? A sharded or multi-GPU harness that fits the model, with exact provenance and paired end-to-end controls.
+
+That is the session. The headline is negative, the evidence is careful, and the next experiment is already written down. Thanks for listening.

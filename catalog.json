@@ -146,7 +146,9 @@
       "title": "What We Learned About Predictive MoE Prefetching",
       "series": "Inference & Serving",
       "bg": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=80",
-      "published": "2026-09-16"
+      "published": "2026-09-16",
+      "engine": "speechify",
+      "voice": "1d6165c1-8b4c-455e-ac30-edd3784606a5"
     }
   ]
 }

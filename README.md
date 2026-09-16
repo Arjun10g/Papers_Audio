@@ -58,6 +58,21 @@ CI publishes with the `HF_TOKEN` repository secret (a write token for
 `arjun10g`). Re-rendering an existing lecture: `generate_lecture.py <id>
 --force`, then publish — the new sha256 gives it a new pinned URL.
 
+### Voices
+
+Kokoro (`af_heart`) is the default: free and local. For a Speechify voice,
+put it on the catalog entry and the narrator (locally or in CI) uses it:
+
+```json
+{ "id": "expert-prefetch", "engine": "speechify",
+  "voice": "1d6165c1-8b4c-455e-ac30-edd3784606a5", ... }
+```
+
+Speechify needs `SPEECHIFY_API_KEY` in the environment (it is also a
+repository secret for CI). List the account's voice ids with
+`curl -H "Authorization: Bearer $SPEECHIFY_API_KEY" https://api.sws.speechify.com/v1/voices`.
+`--engine` / `--voice` on the command line override the catalog.
+
 ## The app
 
 Vanilla HTML/CSS/JS in `app/`, no build step. Offline downloads go through the

@@ -200,7 +200,7 @@ def configure_espeak() -> None:
         os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", str(lib))
 
 
-def synthesize(blocks: list[Block], voice: str, speed: float):
+def synthesize_kokoro(blocks: list[Block], voice: str, speed: float):
     """Yield (block, audio float32) in order; silence gaps are added by the caller."""
     configure_espeak()
     from kokoro import KPipeline
@@ -211,6 +211,86 @@ def synthesize(blocks: list[Block], voice: str, speed: float):
             if audio is not None:
                 chunks.append(np.asarray(audio, dtype=np.float32))
         yield b, (np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32))
+
+
+SPEECHIFY_URL = "https://api.sws.speechify.com/v1/audio/speech"
+SPEECHIFY_MAX = 1900          # characters per request (API limit is 2000 for plain text)
+
+
+def speechify_request(text: str, voice: str, key: str) -> bytes:
+    """One TTS call → mp3 bytes, retrying on rate limits and server errors."""
+    import base64
+    import urllib.error
+    import urllib.request
+    body = json.dumps({"input": text, "voice_id": voice, "audio_format": "mp3",
+                       "language": "en-US"}).encode("utf-8")
+    req = urllib.request.Request(SPEECHIFY_URL, data=body, method="POST", headers={
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return base64.b64decode(json.load(r)["audio_data"])
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503, 504) and attempt < 5:
+                time.sleep(2 ** attempt)
+                continue
+            raise SystemExit(f"Speechify {e.code}: {e.read()[:300]!r}")
+    raise SystemExit("Speechify: gave up after retries")
+
+
+def decode_mp3(data: bytes) -> np.ndarray:
+    """mp3 bytes → float32 mono at SAMPLE_RATE, so both engines share one encoder."""
+    out = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-i", "pipe:0",
+         "-f", "f32le", "-ar", str(SAMPLE_RATE), "-ac", "1", "pipe:1"],
+        input=data, capture_output=True, check=True,
+    ).stdout
+    return np.frombuffer(out, dtype="<f4").astype(np.float32)
+
+
+def synthesize_speechify(blocks: list[Block], voice: str, speed: float):
+    """Same contract as synthesize_kokoro, via the Speechify API.
+
+    Consecutive paragraphs are batched into one request (cheaper, and the
+    voice keeps its flow across them); a heading always starts a new request
+    so chapter timestamps stay exact. Blocks after the first in a batch are
+    yielded with empty audio, which keeps the caller's bookkeeping simple."""
+    key = os.environ.get("SPEECHIFY_API_KEY")
+    if not key:
+        sys.exit("set SPEECHIFY_API_KEY (never hardcode it; the old scripts leaked one)")
+    if speed != 1.0:
+        print("  note: --speed is ignored for the speechify engine")
+
+    def split_long(text: str) -> list[str]:
+        parts, cur = [], ""
+        for s in re.split(r"(?<=[.?!])\s+", text):
+            if len(cur) + len(s) + 1 > SPEECHIFY_MAX and cur:
+                parts.append(cur.strip()); cur = ""
+            cur += s + " "
+        return parts + ([cur.strip()] if cur.strip() else [])
+
+    batch: list[Block] = []
+
+    def flush():
+        if not batch:
+            return
+        text = "\n\n".join(b.text for b in batch)
+        audio = np.concatenate([decode_mp3(speechify_request(t, voice, key)) for t in split_long(text)])
+        yield batch[0], audio
+        for b in batch[1:]:
+            yield b, np.zeros(0, dtype=np.float32)
+        batch.clear()
+
+    for b in blocks:
+        if b.level or sum(len(x.text) + 2 for x in batch) + len(b.text) > SPEECHIFY_MAX:
+            yield from flush()
+        batch.append(b)
+        if b.level:                      # a heading is spoken on its own
+            yield from flush()
+    yield from flush()
+
+
+ENGINES = {"kokoro": synthesize_kokoro, "speechify": synthesize_speechify}
 
 
 def encode_mp3(samples: np.ndarray, dest: Path, title: str) -> None:
@@ -230,7 +310,11 @@ def encode_mp3(samples: np.ndarray, dest: Path, title: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("id", help="lecture id: lectures/<id>.md → audio/<id>.mp3")
-    ap.add_argument("--voice", default="af_heart")
+    ap.add_argument("--engine", choices=sorted(ENGINES),
+                    help="kokoro (free, local; default) or speechify (API, $SPEECHIFY_API_KEY); "
+                         "defaults to the lecture's `engine` in catalog.json")
+    ap.add_argument("--voice", help="Kokoro voice name or Speechify voice id; "
+                                    "defaults to the lecture's `voice` in catalog.json")
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--force", action="store_true", help="re-render even if audio/<id>.mp3 exists")
     ap.add_argument("--dry-run", action="store_true", help="print the narration script and chapters, no audio")
@@ -239,6 +323,12 @@ def main() -> None:
     src = ROOT / "lectures" / f"{args.id}.md"
     if not src.exists():
         sys.exit(f"no transcript at {src}")
+    catalog = json.loads((ROOT / "catalog.json").read_text(encoding="utf-8"))
+    entry = next((l for l in catalog["lectures"] if l["id"] == args.id), {})
+    engine = args.engine or entry.get("engine", "kokoro")
+    voice = args.voice or entry.get("voice") or {"kokoro": "af_heart"}.get(engine)
+    if not voice:
+        sys.exit(f"{engine} needs --voice (or a `voice` field on the catalog entry)")
     out_dir = ROOT / "audio"
     out_dir.mkdir(exist_ok=True)
     dest = out_dir / f"{args.id}.mp3"
@@ -250,7 +340,8 @@ def main() -> None:
     title = next((b.text for b in blocks if b.level == 1), args.id)
     n_chars = sum(len(b.text) for b in blocks)
     n_chapters = sum(1 for b in blocks if b.level == 2)
-    print(f"{src.name}: {len(blocks)} blocks, {n_chars:,} characters, {n_chapters} chapters", flush=True)
+    print(f"{src.name}: {len(blocks)} blocks, {n_chars:,} characters, {n_chapters} chapters"
+          f"  [{engine} / {voice}]", flush=True)
 
     if args.dry_run:
         for b in blocks:
@@ -263,14 +354,15 @@ def main() -> None:
     t = 0.0
     t0 = time.time()
 
-    for i, (b, audio) in enumerate(synthesize(blocks, args.voice, args.speed), 1):
+    for i, (b, audio) in enumerate(ENGINES[engine](blocks, voice, args.speed), 1):
         if b.level:
             pieces.append(silence(GAP_HEADING)); t += GAP_HEADING
             if b.level == 2:
                 chapters.append({"title": b.text.rstrip("."), "start": round(t, 2)})
         pieces.append(audio); t += len(audio) / SAMPLE_RATE
-        gap = GAP_AFTER_HEADING if b.level else GAP_PARA
-        pieces.append(silence(gap)); t += gap
+        if len(audio):                   # batched engines yield empty audio for merged blocks
+            gap = GAP_AFTER_HEADING if b.level else GAP_PARA
+            pieces.append(silence(gap)); t += gap
         if i % 20 == 0 or b.level == 2:
             print(f"  {i:4d}/{len(blocks)}  {t / 60:5.1f} min  "
                   f"({t / max(time.time() - t0, 1e-6):.1f}x real time)"

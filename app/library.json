@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "title": "Papers, as Audio",
-  "generated": "2026-09-16T18:31:15Z",
+  "generated": "2026-09-16T18:54:19Z",
   "repo": "arjun10g/papers-audio",
-  "revision": "6fa20122612cab7dd1b0425ff7f09ea10ec7726d",
-  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/6fa20122612cab7dd1b0425ff7f09ea10ec7726d/",
+  "revision": "3d2e849032db6e888bee4aaff07301efabd3a804",
+  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/3d2e849032db6e888bee4aaff07301efabd3a804/",
   "lectures": [
     {
       "id": "splines",
@@ -272,12 +272,12 @@
       "title": "What We Learned About Predictive MoE Prefetching",
       "series": "Inference & Serving",
       "audio": "audio/expert-prefetch.mp3",
-      "bytes": 41572653,
-      "duration": 3464.35,
+      "bytes": 28002948,
+      "duration": 2333.54,
       "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/expert-prefetch.md",
       "bg": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=80",
       "published": "2026-09-16",
-      "sha256": "272379bd03221a168de5a374ccfb7ca2b3fecca7dcb28c9ecf1aa55a7581252e",
+      "sha256": "2067b0bde072d4461156a072f5070f1006a9016b56d3e0799aa315c4d687fc3d",
       "chapters": [
         {
           "title": "Introduction",
@@ -285,71 +285,71 @@
         },
         {
           "title": "The question",
-          "start": 71.55
+          "start": 42.9
         },
         {
           "title": "A short chronology",
-          "start": 146.65
+          "start": 126.56
         },
         {
-          "title": "MoE routing and the prediction problem",
-          "start": 279.37
+          "title": "Routing, and where the prediction error lives",
+          "start": 220.11
+        },
+        {
+          "title": "K versus M",
+          "start": 311.86
         },
         {
           "title": "The timing pipeline",
-          "start": 427.33
+          "start": 377.16
         },
         {
-          "title": "Metrics and why they are separate",
-          "start": 501.95
+          "title": "The metrics, and why they are kept apart",
+          "start": 462.91
         },
         {
-          "title": "Predictor families and equations",
-          "start": 622.7
+          "title": "Predictor families",
+          "start": 567.85
         },
         {
           "title": "Low-rank correction, step by step",
-          "start": 906.7
+          "start": 756.24
         },
         {
-          "title": "Model geometry and selected configurations",
-          "start": 1130.63
+          "title": "Model geometry and the selected configurations",
+          "start": 944.22
         },
         {
           "title": "Offline results",
-          "start": 1340.03
+          "start": 1089.21
         },
         {
           "title": "Hardware and transfer measurements",
-          "start": 1715.27
+          "start": 1327.6
         },
         {
-          "title": "Qwen3.5 end-to-end results",
-          "start": 2259.2
+          "title": "Qwen 3.5 end-to-end results",
+          "start": 1561.1
         },
         {
           "title": "Engineering repairs and reproducibility",
-          "start": 2541.25
+          "start": 1764.02
         },
         {
           "title": "What the results mean",
-          "start": 2912.9
+          "start": 1953.48
         },
         {
-          "title": "Unexecuted next experiments",
-          "start": 3048.95
+          "title": "What comes next",
+          "start": 2071.95
         },
         {
           "title": "Glossary",
-          "start": 3134.65
-        },
-        {
-          "title": "Source map",
-          "start": 3211.6
+          "start": 2142.41
         },
         {
           "title": "Self-check questions",
-          "start": 3327.65
+          "start": 2206.2
         }
       ]
     }
