@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "title": "Papers, as Audio",
-  "generated": "2026-09-16T18:28:13Z",
+  "generated": "2026-09-16T18:31:15Z",
   "repo": "arjun10g/papers-audio",
-  "revision": "c64b1bd55063c4f2274506ea7ecb81e08d6e18ee",
-  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/c64b1bd55063c4f2274506ea7ecb81e08d6e18ee/",
+  "revision": "6fa20122612cab7dd1b0425ff7f09ea10ec7726d",
+  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/6fa20122612cab7dd1b0425ff7f09ea10ec7726d/",
   "lectures": [
     {
       "id": "splines",
@@ -118,7 +118,7 @@
       "audio": "audio/rashomon.mp3",
       "bytes": 8536556,
       "duration": 1067.04,
-      "doc": "lectures/rashomon.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/rashomon.md",
       "bg": "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=1920&q=80",
       "published": "2026-03-31",
       "sha256": "e8fda516cf88d88ac3556c6ab5bfe23dc338a206f6b042cb46b01799e3d532e5"
@@ -131,7 +131,7 @@
       "audio": "audio/rashomon-instability.mp3",
       "bytes": 8578988,
       "duration": 1072.34,
-      "doc": "lectures/rashomon-instability.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/rashomon-instability.md",
       "bg": "https://images.unsplash.com/photo-1494232410401-ad00d5433cfa?w=1920&q=80",
       "published": "2026-04-01",
       "sha256": "1a34b934439c32384b383e99bfe6a67f90cb5457f64f7f1f942b93ffaf3745ad"
@@ -144,7 +144,7 @@
       "audio": "audio/boosting.mp3",
       "bytes": 22136876,
       "duration": 2767.08,
-      "doc": "lectures/boosting.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/boosting.md",
       "bg": "https://images.unsplash.com/photo-1527474305487-b87b222841cc?w=1920&q=80",
       "published": "2026-04-06",
       "sha256": "398db81fda21a959f0f038d92a6e0f257af3d3f6f0afaf01bd63448ea5e298cd"
@@ -157,7 +157,7 @@
       "audio": "audio/decomposed-tree.mp3",
       "bytes": 17074604,
       "duration": 2134.3,
-      "doc": "lectures/decomposed-tree.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/decomposed-tree.md",
       "bg": "https://images.unsplash.com/photo-1518186285589-2f7649de83e0?w=1920&q=80",
       "published": "2026-04-09",
       "sha256": "5638289339a11d2c1e32c597aff8aeb936a1cb1f050eca3ff22c8440b9967471"
@@ -170,7 +170,7 @@
       "audio": "audio/transformers.mp3",
       "bytes": 20098796,
       "duration": 2512.32,
-      "doc": "lectures/transformers.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/transformers.md",
       "bg": "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1920&q=80",
       "published": "2026-04-17",
       "sha256": "ff3b0bc7fe4aee4d3ac09417243c294fbcf90de908e3a7879278594369c40341"
@@ -183,7 +183,7 @@
       "audio": "audio/embedders.mp3",
       "bytes": 9554924,
       "duration": 1194.34,
-      "doc": "lectures/embedders.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/embedders.md",
       "bg": "https://images.unsplash.com/photo-1639322537228-f710d846310a?w=1920&q=80",
       "published": "2026-04-21",
       "sha256": "e966867b3f5ef2137771b4f9c2f478eadfaee89b97102fd5fdc3c383dbc153ad"
@@ -196,7 +196,7 @@
       "audio": "audio/recurrent-depth.mp3",
       "bytes": 22617836,
       "duration": 2827.2,
-      "doc": "lectures/recurrent-depth.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/recurrent-depth.md",
       "bg": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1920&q=80",
       "published": "2026-06-25",
       "sha256": "8e784872809b61d1bc1b43dfae83be96a938c3b497a7ce72e838695d5bb85024"
@@ -209,7 +209,7 @@
       "audio": "audio/hardware-ouro.mp3",
       "bytes": 15037868,
       "duration": 1879.7,
-      "doc": "lectures/hardware-ouro.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/hardware-ouro.md",
       "bg": "https://images.unsplash.com/photo-1591405351990-4726e331f141?w=1920&q=80",
       "published": "2026-07-03",
       "sha256": "71b34e853828d442f4873df79f13151459edb46dd91cea397cb0f2661c8b163d"
@@ -222,7 +222,7 @@
       "audio": "audio/model-comparison.mp3",
       "bytes": 8733740,
       "duration": 1091.69,
-      "doc": "lectures/model-comparison.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/model-comparison.md",
       "bg": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&q=80",
       "published": "2026-07-06",
       "sha256": "8029d1f76844cb783e41d531af0cf1b5cd41607e3fad45b7eacbbc985ca269d4"
@@ -235,7 +235,7 @@
       "audio": "audio/ouro-implementation.mp3",
       "bytes": 28273772,
       "duration": 3534.19,
-      "doc": "lectures/ouro-implementation.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/ouro-implementation.md",
       "bg": "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1920&q=80",
       "published": "2026-07-07",
       "sha256": "fa8aa9dda5214af0c0021d0deb2f43d15be3c1d5e66c12bc6045c8dd0b6cab75"
@@ -248,7 +248,7 @@
       "audio": "audio/inference-serving.mp3",
       "bytes": 26284460,
       "duration": 1642.75,
-      "doc": "lectures/inference-serving.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/inference-serving.md",
       "bg": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=1920&q=80",
       "published": "2026-08-25",
       "sha256": "5a1899680325c2aeb423c7ec23d77080c2c9a0c48a1aeea3039b86149d330f6e"
@@ -261,7 +261,7 @@
       "audio": "audio/throughput.mp3",
       "bytes": 24726956,
       "duration": 1545.41,
-      "doc": "lectures/throughput.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/throughput.md",
       "bg": "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=1920&q=80",
       "published": "2026-08-25",
       "sha256": "d9be5224448dfdb67f253859ed56a8739b3ea07ca9645a12b86d9733eb152590"
@@ -274,7 +274,7 @@
       "audio": "audio/expert-prefetch.mp3",
       "bytes": 41572653,
       "duration": 3464.35,
-      "doc": "lectures/expert-prefetch.md",
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/expert-prefetch.md",
       "bg": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=80",
       "published": "2026-09-16",
       "sha256": "272379bd03221a168de5a374ccfb7ca2b3fecca7dcb28c9ecf1aa55a7581252e",

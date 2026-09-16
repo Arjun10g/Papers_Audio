@@ -12,8 +12,10 @@ What it does, in order:
 2. Compares audio/<id>.mp3 (if present locally) against what is already on the
    dataset by sha256 and uploads only new or changed files, together with every
    lectures/<id>.md, in one commit.
-3. Builds library.json: duration, size, sha, transcript path, chapter markers,
-   with every file URL pinned to that commit so the app's caches never go stale.
+3. Builds library.json: duration, size, sha, transcript URL, chapter markers.
+   Audio URLs are pinned to the last commit that changed audio (the app keys
+   offline downloads by URL, so they must not move otherwise); transcripts
+   point at main so edits show up immediately.
    Durations/chapters for lectures whose audio is not on this machine (the
    normal case in CI) are carried over from the previous library.json.
 4. Uploads library.json (second commit) and writes a copy to app/library.json
@@ -109,18 +111,18 @@ def remote_files(api, repo_exists: bool) -> dict[str, dict]:
     return out
 
 
-def previous_library(api, repo_exists: bool) -> dict[str, dict]:
-    """id -> lecture entry from the library.json already published, if any."""
+def previous_library(api, repo_exists: bool) -> tuple[dict[str, dict], str | None]:
+    """(id -> lecture entry, pinned audio revision) from the published library.json."""
     if not repo_exists:
-        return {}
+        return {}, None
     try:
         from huggingface_hub import hf_hub_download
         p = hf_hub_download(REPO_ID, "library.json", repo_type=REPO_TYPE, force_download=True)
         data = json.loads(Path(p).read_text(encoding="utf-8"))
-        return {lec["id"]: lec for lec in data.get("lectures", [])}
+        return {lec["id"]: lec for lec in data.get("lectures", [])}, data.get("revision")
     except Exception as e:  # first publish, or a corrupt file — rebuild from scratch
         print(f"  (no previous library.json: {type(e).__name__})")
-        return {}
+        return {}, None
 
 
 def main() -> None:
@@ -144,7 +146,7 @@ def main() -> None:
         repo_exists = False
 
     remote = remote_files(api, repo_exists)
-    prev = previous_library(api, repo_exists)
+    prev, prev_rev = previous_library(api, repo_exists)
 
     # ── Decide what to upload ──
     ops: list = []
@@ -188,15 +190,21 @@ def main() -> None:
                 REPO_ID, repo_type=REPO_TYPE, operations=ops,
                 commit_message=f"Sync {len(audio_ops)} audio file(s) and transcripts",
             )
-            revision = info.oid
-            print(f"committed {revision[:10]}")
+            print(f"committed {info.oid[:10]}")
         else:
-            revision = api.repo_info(REPO_ID, repo_type=REPO_TYPE).sha
             print("nothing to upload")
         remote = remote_files(api, True)
 
+        # The app keys its offline downloads by full URL, so `base` must only
+        # move when audio actually changes — not on every library.json commit.
+        if audio_ops or not prev_rev:
+            revision = api.repo_info(REPO_ID, repo_type=REPO_TYPE).sha
+        else:
+            revision = prev_rev
+
     # ── Build library.json ──
     base = f"{HUB}/datasets/{REPO_ID}/resolve/{revision}/"
+    doc_base = f"{HUB}/datasets/{REPO_ID}/resolve/main/"     # transcripts: always the latest
     lectures_out = []
     for n, lec in enumerate(cat["lectures"], 1):
         slug = lec["id"]
@@ -230,7 +238,7 @@ def main() -> None:
             "audio": key,
             "bytes": size,
             "duration": duration,
-            "doc": f"lectures/{slug}.md" if (LECTURES / f"{slug}.md").exists() else None,
+            "doc": f"{doc_base}lectures/{slug}.md" if (LECTURES / f"{slug}.md").exists() else None,
             "bg": lec.get("bg"),
             "published": lec.get("published"),
             "sha256": sha,
