@@ -54,6 +54,7 @@ jobs:
           sudo apt-get install -y -qq espeak-ng ffmpeg
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install kokoro soundfile numpy
+          python -m spacy download en_core_web_sm   # misaki's English G2P needs it
 
       - name: Narrate
         if: steps.missing.outputs.count != '0'

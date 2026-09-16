@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import subprocess
 import sys
@@ -185,8 +186,23 @@ def markdown_to_blocks(md: str) -> list[Block]:
 
 # ── Synthesis ──
 
+def configure_espeak() -> None:
+    """On macOS the espeakng-loader wheel's dylib looks for its data at a path
+    baked in on the wheel's build machine and then exits the whole process.
+    Point misaki at the Homebrew install when there is one (brew install
+    espeak-ng). Linux CI runners are fine with the bundled loader."""
+    lib, data = Path("/opt/homebrew/lib/libespeak-ng.dylib"), Path("/opt/homebrew/share/espeak-ng-data")
+    if sys.platform == "darwin" and lib.exists() and data.exists():
+        import espeakng_loader
+        espeakng_loader.get_library_path = lambda: str(lib)
+        espeakng_loader.get_data_path = lambda: str(data)
+        os.environ.setdefault("ESPEAK_DATA_PATH", str(data))
+        os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", str(lib))
+
+
 def synthesize(blocks: list[Block], voice: str, speed: float):
     """Yield (block, audio float32) in order; silence gaps are added by the caller."""
+    configure_espeak()
     from kokoro import KPipeline
     pipe = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
     for b in blocks:
@@ -259,6 +275,9 @@ def main() -> None:
             print(f"  {i:4d}/{len(blocks)}  {t / 60:5.1f} min  "
                   f"({t / max(time.time() - t0, 1e-6):.1f}x real time)"
                   + (f"  ## {b.text[:60]}" if b.level == 2 else ""), flush=True)
+
+    if chapters and chapters[0]["start"] > 20:      # the opening before the first "## " heading
+        chapters.insert(0, {"title": "Introduction", "start": 0})
 
     samples = np.concatenate(pieces)
     encode_mp3(samples, dest, title)

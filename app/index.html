@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Papers, as Audio</title>
+<meta name="description" content="Long-form technical lectures as an audiobook. Listen online or download for offline.">
+<meta name="theme-color" content="#0d1017">
+<meta name="color-scheme" content="dark light">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Papers Audio">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://huggingface.co" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="./app.css">
+<script>/* apply the saved theme before first paint */
+try{var t=localStorage.getItem("pa.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}
+</script>
+<script src="./config.js"></script>
+</head>
+<body>
+
+<!-- ───────── icon sprite ───────── -->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 4.5h4V19.5H6zM14 4.5h4V19.5h-4z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 6h2.2v12H6zm3.8 6L18.5 6v12z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M15.8 6H18v12h-2.2zM14.2 12 5.5 18V6z"/></symbol>
+  <symbol id="i-back15" viewBox="0 0 24 24">
+    <path d="M12 5V1.2L7.2 6 12 10.8V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/>
+    <text x="12.4" y="16.2" text-anchor="middle" font-size="8.2" font-weight="700" font-family="Inter, system-ui, sans-serif">15</text>
+  </symbol>
+  <symbol id="i-fwd30" viewBox="0 0 24 24">
+    <path d="M12 5V1.2L16.8 6 12 10.8V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/>
+    <text x="11.6" y="16.2" text-anchor="middle" font-size="8.2" font-weight="700" font-family="Inter, system-ui, sans-serif">30</text>
+  </symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6.6 8.6 12 14l5.4-5.4L19 10.2l-7 7-7-7z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M11 3h2v9.2l3.1-3.1 1.4 1.4L12 16l-5.5-5.5 1.4-1.4L11 12.2zM5 18h14v2H5z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M9.2 16.4 4.9 12.1 3.5 13.5l5.7 5.7L21 7.4 19.6 6z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M9 3h6l1 2h4v2H4V5h4zM6 8h12l-.9 12.1A2 2 0 0 1 15.1 22H8.9a2 2 0 0 1-2-1.9z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M4 4h16v2.2H4zm0 5h16v2.2H4zm0 5h11v2.2H4zm0 5h16v2.2H4z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm.9 10.4V6h-2v7.6l5.3 3.2 1-1.7z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12.4 2.6A9.4 9.4 0 1 0 21.4 14a7.6 7.6 0 0 1-9-11.4z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 7.6a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8zM11 1h2v3.4h-2zm0 19.6h2V24h-2zM1 11h3.4v2H1zm18.6 0H23v2h-3.4zM3.5 4.9 4.9 3.5l2.4 2.4L5.9 7.3zm13.2 13.2 1.4-1.4 2.4 2.4-1.4 1.4zM18.1 5.9l-1.4-1.4 2.4-2.4 1.4 1.4zM5.9 16.7l1.4 1.4-2.4 2.4-1.4-1.4z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm.1 15.6a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zM14 11.2c-.8.7-1 1-1 1.8h-2c0-1.5.5-2.2 1.4-3 .6-.5.9-.9.9-1.5 0-.8-.6-1.3-1.4-1.3s-1.4.5-1.5 1.5H8.4C8.5 6.9 9.9 5.4 12 5.4c2 0 3.5 1.2 3.5 3 0 1.1-.4 1.8-1.5 2.8z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h2.4v2.4H3zm4.6 0H21v2.4H7.6zM3 10.8h2.4v2.4H3zm4.6 0H21v2.4H7.6zM3 16.6h2.4V19H3zm4.6 0H21V19H7.6z"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M15.4 6.6 14 5.2l-6.8 6.8L14 18.8l1.4-1.4-5.4-5.4z"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M8.6 6.6 10 5.2l6.8 6.8L10 18.8l-1.4-1.4 5.4-5.4z"/></symbol>
+</svg>
+
+<audio id="audio" preload="metadata" playsinline></audio>
+
+<!-- ───────── library ───────── -->
+<header class="topbar" id="topbar">
+  <div class="topbar-row">
+    <div class="brand">
+      <img class="brand-mark" src="./icons/icon.svg" alt="" width="34" height="34">
+      <div class="brand-text">
+        <h1>Papers, <em>as Audio</em></h1>
+        <p class="brand-sub" id="storageLine">Loading library…</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="pill pill-warn" id="offlinePill" hidden>offline</span>
+      <button class="btn-install" id="btnInstall" hidden><svg class="ic"><use href="#i-plus"></use></svg><span>Install</span></button>
+      <button class="icon-btn" id="btnTheme" aria-label="Toggle theme" title="Toggle theme (T)"><svg class="ic"><use href="#i-moon"></use></svg></button>
+      <button class="icon-btn hide-phone" id="btnHelp" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)"><svg class="ic"><use href="#i-help"></use></svg></button>
+    </div>
+  </div>
+  <div class="searchrow">
+    <label class="search" for="search">
+      <svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg>
+      <input id="search" type="search" placeholder="Search lectures…" aria-label="Search lectures" autocomplete="off" enterkeyhint="search">
+      <button class="search-clear" id="searchClear" aria-label="Clear search" hidden><svg class="ic"><use href="#i-close"></use></svg></button>
+    </label>
+    <button class="btn-quiet" id="btnDownloadAll" title="Download every lecture for offline listening">Get all</button>
+  </div>
+</header>
+
+<main class="library" id="library">
+  <div id="continueSlot"></div>
+  <div id="list" class="list" role="list"></div>
+  <p class="foot" id="foot"></p>
+</main>
+
+<!-- ───────── mini player ───────── -->
+<div class="mini" id="mini" hidden>
+  <div class="mini-line"><i id="miniFill"></i></div>
+  <button class="mini-open" id="miniOpen" aria-label="Open player">
+    <img class="mini-art" id="miniArt" alt="" width="42" height="42">
+    <span class="mini-meta">
+      <span class="mini-title" id="miniTitle"></span>
+      <span class="mini-sub" id="miniSub"></span>
+    </span>
+  </button>
+  <div class="mini-ctrl">
+    <button class="icon-btn lg" id="miniPlay" aria-label="Play or pause"><svg class="ic"><use href="#i-play"></use></svg></button>
+    <button class="icon-btn lg" id="miniFwd" aria-label="Forward 30 seconds"><svg class="ic"><use href="#i-fwd30"></use></svg></button>
+  </div>
+</div>
+
+<!-- ───────── now playing sheet ───────── -->
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Now playing" aria-hidden="true">
+  <div class="sheet-bg" id="sheetBg"></div>
+  <div class="sheet-scrim"></div>
+  <div class="sheet-body">
+    <div class="sheet-grab" id="sheetGrab">
+      <button class="icon-btn" id="btnCloseSheet" aria-label="Minimise player"><svg class="ic"><use href="#i-chevron-down"></use></svg></button>
+      <span class="sheet-eyebrow" id="sheetEyebrow">Now playing</span>
+      <span class="sheet-badge" id="sheetNum"></span>
+    </div>
+
+    <div class="cover-wrap">
+      <img class="cover" id="cover" alt="" decoding="async">
+    </div>
+
+    <div class="np-meta">
+      <p class="np-series" id="npSeries"></p>
+      <h2 class="np-title" id="npTitle"></h2>
+      <div class="chapbar" id="chapBar" hidden>
+        <button class="chip-ic" id="btnChapPrev" aria-label="Previous chapter"><svg class="ic"><use href="#i-chev-left"></use></svg></button>
+        <button class="chip" id="btnChapters" aria-label="Chapters">
+          <svg class="ic" aria-hidden="true"><use href="#i-list"></use></svg>
+          <span class="chip-t" id="chapNow">Chapters</span>
+        </button>
+        <button class="chip-ic" id="btnChapNext" aria-label="Next chapter"><svg class="ic"><use href="#i-chev-right"></use></svg></button>
+      </div>
+    </div>
+
+    <div class="scrub-wrap">
+      <div class="scrub-rail">
+        <input class="scrub" id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek position">
+        <div class="ticks" id="ticks" aria-hidden="true"></div>
+      </div>
+      <div class="times">
+        <span id="tCur">0:00</span>
+        <span class="t-total" id="tTotal"></span>
+        <span id="tRemain">-0:00</span>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="tr" id="btnPrev" aria-label="Previous lecture"><svg class="ic"><use href="#i-prev"></use></svg></button>
+      <button class="tr" id="btnBack" aria-label="Back 15 seconds"><svg class="ic"><use href="#i-back15"></use></svg></button>
+      <button class="tr play" id="btnPlay" aria-label="Play or pause"><svg class="ic"><use href="#i-play"></use></svg></button>
+      <button class="tr" id="btnFwd" aria-label="Forward 30 seconds"><svg class="ic"><use href="#i-fwd30"></use></svg></button>
+      <button class="tr" id="btnNext" aria-label="Next lecture"><svg class="ic"><use href="#i-next"></use></svg></button>
+    </div>
+
+    <div class="tools">
+      <button class="tool" id="btnRate" aria-label="Playback speed">
+        <span class="tool-ic tool-rate" id="rateVal">1×</span>
+        <span class="tool-l">Speed</span>
+      </button>
+      <button class="tool" id="btnSleep" aria-label="Sleep timer">
+        <span class="tool-ic"><svg class="ic"><use href="#i-clock"></use></svg></span>
+        <span class="tool-l" id="sleepLabel">Sleep</span>
+      </button>
+      <button class="tool" id="btnDownload" aria-label="Download for offline">
+        <span class="tool-ic">
+          <svg class="ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-bg" cx="18" cy="18" r="15.5"></circle><circle class="ring-fg" cx="18" cy="18" r="15.5"></circle></svg>
+          <svg class="ic" id="dlIcon"><use href="#i-download"></use></svg>
+        </span>
+        <span class="tool-l" id="dlLabel">Download</span>
+      </button>
+      <button class="tool" id="btnRead" aria-label="Read transcript">
+        <span class="tool-ic"><svg class="ic"><use href="#i-doc"></use></svg></span>
+        <span class="tool-l">Transcript</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- chapter markers within the current lecture -->
+  <div class="chaplist" id="chapPanel" aria-hidden="true">
+    <div class="chaplist-head">
+      <h3>Chapters</h3>
+      <button class="icon-btn" id="chapClose" aria-label="Close chapters"><svg class="ic"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="chaplist-body" id="chapItems"></div>
+  </div>
+</section>
+
+<!-- ───────── transcript reader ───────── -->
+<div class="reader" id="reader" role="dialog" aria-modal="true" aria-label="Transcript" aria-hidden="true">
+  <header class="reader-top">
+    <button class="icon-btn" id="readerClose" aria-label="Close transcript"><svg class="ic"><use href="#i-close"></use></svg></button>
+    <div class="reader-head">
+      <p class="reader-eyebrow">Transcript</p>
+      <h2 id="readerTitle"></h2>
+    </div>
+    <div class="reader-tools">
+      <button class="icon-btn txt" id="fontDn" aria-label="Smaller text">A<small>−</small></button>
+      <button class="icon-btn txt" id="fontUp" aria-label="Larger text">A<small>+</small></button>
+    </div>
+  </header>
+  <article class="reader-body" id="readerBody"></article>
+</div>
+
+<!-- ───────── option picker (sleep timer) ───────── -->
+<div class="picker" id="picker" aria-hidden="true">
+  <div class="picker-card" role="dialog" aria-modal="true" aria-label="Options">
+    <h3 id="pickerTitle">Sleep timer</h3>
+    <div class="picker-opts" id="pickerOpts"></div>
+  </div>
+</div>
+
+<!-- ───────── keyboard help ───────── -->
+<div class="picker" id="help" aria-hidden="true">
+  <div class="picker-card" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <h3>Keyboard shortcuts</h3>
+    <ul class="keys">
+      <li><kbd>Space</kbd><span>Play / pause</span></li>
+      <li><kbd>←</kbd><span>Back 15 seconds</span></li>
+      <li><kbd>→</kbd><span>Forward 30 seconds</span></li>
+      <li><kbd>⇧ ←</kbd> <kbd>⇧ →</kbd><span>Previous / next lecture</span></li>
+      <li><kbd>[</kbd> <kbd>]</kbd><span>Slower / faster</span></li>
+      <li><kbd>0</kbd>–<kbd>9</kbd><span>Jump to 0–90%</span></li>
+      <li><kbd>R</kbd><span>Transcript</span></li>
+      <li><kbd>T</kbd><span>Theme</span></li>
+      <li><kbd>/</kbd><span>Search</span></li>
+      <li><kbd>Esc</kbd><span>Close the top layer</span></li>
+      <li><kbd>?</kbd><span>This list</span></li>
+    </ul>
+    <button class="btn-wide" id="helpClose">Close</button>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script src="./app.js"></script>
+</body>
+</html>

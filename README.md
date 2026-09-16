@@ -46,8 +46,10 @@ audio never goes stale.
 To narrate locally instead (faster on an M-series Mac), then push:
 
 ```bash
+brew install espeak-ng ffmpeg
 uv venv .venv --python 3.12 && source .venv/bin/activate
-uv pip install kokoro soundfile numpy -r tools/requirements.txt   # brew install espeak-ng ffmpeg
+uv pip install kokoro soundfile numpy -r tools/requirements.txt
+uv pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 python tools/generate_lecture.py <id>           # → audio/<id>.mp3 + chapters
 HF_TOKEN=hf_… python tools/publish.py          # upload + library.json
 ```

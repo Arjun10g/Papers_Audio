@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Papers, as Audio">
+  <defs>
+    <linearGradient id="pa-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e2634"/>
+      <stop offset="1" stop-color="#0a0d13"/>
+    </linearGradient>
+    <linearGradient id="pa-paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dde3ee"/>
+    </linearGradient>
+    <linearGradient id="pa-coral" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff7a97"/>
+      <stop offset="1" stop-color="#f4204f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#pa-bg)"/>
+
+  <!-- a second sheet peeking out behind, so it reads as "papers" -->
+  <g transform="rotate(7 256 256)">
+    <rect x="150" y="100" width="212" height="312" rx="26" fill="#ffffff" opacity="0.14"/>
+  </g>
+
+  <!-- the page itself, with the lecture rendered as a waveform -->
+  <g transform="rotate(-7 256 256)">
+    <rect x="128" y="86" width="256" height="340" rx="30" fill="url(#pa-paper)"/>
+    <g fill="url(#pa-coral)">
+      <rect x="176" y="222" width="16" height="68"  rx="8"/>
+      <rect x="200" y="190" width="16" height="132" rx="8"/>
+      <rect x="224" y="158" width="16" height="196" rx="8"/>
+      <rect x="248" y="142" width="16" height="228" rx="8"/>
+      <rect x="272" y="172" width="16" height="168" rx="8"/>
+      <rect x="296" y="204" width="16" height="104" rx="8"/>
+      <rect x="320" y="230" width="16" height="52"  rx="8"/>
+    </g>
+  </g>
+</svg>
