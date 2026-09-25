@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "title": "Papers, as Audio",
-  "generated": "2026-09-16T19:14:49Z",
+  "generated": "2026-09-25T23:25:03Z",
   "repo": "arjun10g/papers-audio",
-  "revision": "35037089a42b0394da375e5967c65817abc47153",
-  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/35037089a42b0394da375e5967c65817abc47153/",
+  "revision": "c7221a3adad2cfd0788b62929490426b75a4d044",
+  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/c7221a3adad2cfd0788b62929490426b75a4d044/",
   "lectures": [
     {
       "id": "splines",
@@ -350,6 +350,176 @@
         {
           "title": "Self-check questions",
           "start": 1691.14
+        }
+      ]
+    },
+    {
+      "id": "compression-is-compute",
+      "n": 22,
+      "title": "Compression Is Part of the Compute",
+      "series": "Quantization & Kernels",
+      "audio": "audio/compression-is-compute.mp3",
+      "bytes": 34523830,
+      "duration": 2876.95,
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/compression-is-compute.md",
+      "bg": "https://images.unsplash.com/photo-1597852074816-d933c7d2b988?w=1920&q=80",
+      "published": "2026-09-25",
+      "sha256": "486db1a51b4d2559b1bb4bf6e03e574ef519e55ce464ed10ba6477179c5f1847",
+      "chapters": [
+        {
+          "title": "Introduction",
+          "start": 0
+        },
+        {
+          "title": "The obvious story",
+          "start": 30.3
+        },
+        {
+          "title": "Where the time goes",
+          "start": 172.82
+        },
+        {
+          "title": "What fewer bits buy on paper",
+          "start": 366.23
+        },
+        {
+          "title": "The hidden step: someone has to decode",
+          "start": 520.48
+        },
+        {
+          "title": "How the processor actually reads memory",
+          "start": 776.7
+        },
+        {
+          "title": "Registers and the shape the tensor core wants",
+          "start": 949.2
+        },
+        {
+          "title": "Non-uniform formats and the lookup problem",
+          "start": 1108.8
+        },
+        {
+          "title": "FLUTE, piece by piece",
+          "start": 1314.75
+        },
+        {
+          "title": "The same move, elsewhere",
+          "start": 1679.97
+        },
+        {
+          "title": "When smaller is slower",
+          "start": 1867.8
+        },
+        {
+          "title": "When batching changes the answer",
+          "start": 2070.22
+        },
+        {
+          "title": "Hardware that speaks the format",
+          "start": 2241.8
+        },
+        {
+          "title": "A design rule for our own hardware",
+          "start": 2433.27
+        },
+        {
+          "title": "What to remember",
+          "start": 2622.15
+        }
+      ]
+    },
+    {
+      "id": "trellis-quantization",
+      "n": 23,
+      "title": "Trellis Quantization: Trading Memory for Cheap Compute",
+      "series": "Quantization & Kernels",
+      "audio": "audio/trellis-quantization.mp3",
+      "bytes": 45536394,
+      "duration": 3794.66,
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/trellis-quantization.md",
+      "bg": "https://images.unsplash.com/photo-1555617981-dac3880eac6e?w=1920&q=80",
+      "published": "2026-09-25",
+      "sha256": "6feba262f5e76934cf40c25a8fa404a15da90302107cbb07b67f1c2f9836c959",
+      "chapters": [
+        {
+          "title": "Introduction",
+          "start": 0
+        },
+        {
+          "title": "Cold open",
+          "start": 46.02
+        },
+        {
+          "title": "Part one - the memory wall at batch one",
+          "start": 168.22
+        },
+        {
+          "title": "Part two - bytes are the expensive part",
+          "start": 376.62
+        },
+        {
+          "title": "Part three - the idle integer units",
+          "start": 511.93
+        },
+        {
+          "title": "Part four - the scalar grid and where it breaks",
+          "start": 727.08
+        },
+        {
+          "title": "Part five - vector quantization and the codebook explosion",
+          "start": 882.63
+        },
+        {
+          "title": "Part six - making weights look Gaussian",
+          "start": 1072.48
+        },
+        {
+          "title": "Part seven - a trellis, borrowed from modems",
+          "start": 1196.9
+        },
+        {
+          "title": "Part eight - the bitshift trellis",
+          "start": 1381.67
+        },
+        {
+          "title": "Part nine - a codebook made of instructions",
+          "start": 1579.82
+        },
+        {
+          "title": "Part ten - what QTIP bought",
+          "start": 1834.52
+        },
+        {
+          "title": "Part eleven - ExLlamaV3: turning a paper into a format",
+          "start": 2001.77
+        },
+        {
+          "title": "Part twelve - ik llama dot cpp: one idea, many machines",
+          "start": 2373.12
+        },
+        {
+          "title": "Part thirteen - why the same code runs differently everywhere",
+          "start": 2725.1
+        },
+        {
+          "title": "Part fourteen - prefill, the other half of the bill",
+          "start": 2956.17
+        },
+        {
+          "title": "Part fifteen - the lesson for custom hardware",
+          "start": 3089.5
+        },
+        {
+          "title": "Where the field is heading",
+          "start": 3364.57
+        },
+        {
+          "title": "Recap",
+          "start": 3453.57
+        },
+        {
+          "title": "Self-check questions",
+          "start": 3601.97
         }
       ]
     }
