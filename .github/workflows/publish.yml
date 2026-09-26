@@ -2,11 +2,19 @@
 # transcripts and library.json to the Hugging Face dataset → deploy the app to
 # GitHub Pages. The phone app reads library.json at launch, so a new lecture
 # shows up on the phone without touching the app.
+#
+# Lectures in the cloned Teller voice ("engine": "clone") are rendered by the
+# private ZeroGPU Space arjun10g/teller-tts, free within the account's daily GPU
+# allowance. A lecture that needs more than one day's allowance pauses; its
+# finished chunks are kept in the Actions cache and the daily scheduled run
+# resumes it until it is published.
 name: Publish library & deploy app
 
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 9 * * *"        # daily: resume cloned-voice renders paused by the GPU allowance
   workflow_dispatch:
 
 concurrency:
@@ -21,6 +29,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.missing.outputs.go }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       SPEECHIFY_API_KEY: ${{ secrets.SPEECHIFY_API_KEY }}   # only for catalog entries with engine: speechify
@@ -39,13 +49,22 @@ jobs:
         id: missing
         run: |
           python tools/publish.py --list-missing | tee missing.txt
-          echo "count=$(grep -c . missing.txt || true)" >> "$GITHUB_OUTPUT"
-          # Kokoro is only worth installing if a missing lecture actually uses it
-          echo "kokoro=$(python -c "
-          import json; ids = set(open('missing.txt').read().split())
-          c = json.load(open('catalog.json'))
-          print(str(any(l['id'] in ids and l.get('engine', 'kokoro') == 'kokoro' for l in c['lectures'])).lower())
-          ")" >> "$GITHUB_OUTPUT"
+          count=$(grep -c . missing.txt || true)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          python - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json
+          ids = set(open("missing.txt").read().split())
+          lectures = [l for l in json.load(open("catalog.json"))["lectures"] if l["id"] in ids]
+          engines = {l.get("engine", "kokoro") for l in lectures}
+          print("kokoro=" + str("kokoro" in engines).lower())
+          print("clone=" + str("clone" in engines).lower())
+          EOF
+          # the daily run only exists to resume paused renders: skip it when there are none
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$count" = "0" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache Kokoro weights
         if: steps.missing.outputs.kokoro == 'true'
@@ -63,6 +82,21 @@ jobs:
           pip install kokoro soundfile numpy
           python -m spacy download en_core_web_sm   # misaki's English G2P needs it
 
+      - name: Restore cloned-voice chunk cache
+        if: steps.missing.outputs.clone == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .tts_cache
+          key: tts-cache-${{ github.run_id }}
+          restore-keys: tts-cache-
+
+      - name: Install the cloned-voice client (the GPU work happens on the ZeroGPU Space)
+        if: steps.missing.outputs.clone == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install gradio_client numpy
+
       - name: Narrate
         if: steps.missing.outputs.count != '0'
         run: |
@@ -70,26 +104,36 @@ jobs:
             [ -n "$id" ] || continue
             engine=$(python -c "import json,sys; print(next((l.get('engine','kokoro') for l in json.load(open('catalog.json'))['lectures'] if l['id']==sys.argv[1]),'kokoro'))" "$id")
             if [ "$engine" = "clone" ]; then
-              # cloned voices need a GPU: render with an HF Job (see README), then publish locally
-              echo "::warning::$id uses a cloned voice and has no audio yet; render it on an HF Job (tools/voice_clone/stage3_render.py)"
+              # free ZeroGPU render; exit 75 = paused by the daily allowance, resumed by the daily run
+              set +e; python tools/generate_lecture.py "$id"; rc=$?; set -e
+              if [ $rc -eq 75 ]; then
+                echo "::warning::$id paused by the daily free GPU allowance; the daily run resumes it"
+              elif [ $rc -ne 0 ]; then
+                echo "::warning::$id failed to render (exit $rc); other lectures still publish"
+              fi
               continue
             fi
             python tools/generate_lecture.py "$id"
           done < missing.txt
 
       - name: Publish to Hugging Face
+        if: steps.missing.outputs.go == 'true'
         run: python tools/publish.py
 
       - name: Stamp the app version with the commit
+        if: steps.missing.outputs.go == 'true'
         run: python tools/stamp_version.py "${GITHUB_SHA::7}"
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - if: steps.missing.outputs.go == 'true'
+        uses: actions/configure-pages@v5
+      - if: steps.missing.outputs.go == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: app
 
   deploy:
     needs: publish
+    if: needs.publish.outputs.go == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

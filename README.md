@@ -79,19 +79,29 @@ repository secret for CI). List the account's voice ids with
 the Speechify "Teller" voice: **VoxCPM2** (Apache-2.0, 48 kHz) plus a **LoRA
 fine-tuned on about 19 minutes of Teller narration**. The profile (prompt clip,
 transcript, LoRA weights) lives in the **private** HF dataset
-`arjun10g/papers-audio-voice` under `voices/teller/`, never in this repo. It
-needs a GPU, so renders run as Hugging Face Jobs:
+`arjun10g/papers-audio-voice` under `voices/teller/`, never in this repo.
 
-```bash
-# upload tools/generate_lecture.py, catalog.json and lectures/<id>.md to render_bundle/, then
-hf jobs run --flavor a100-large --secrets HF_TOKEN -e PIP="voxcpm numpy" \
-  pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime bash -c "<boot> stage3_render.py <id> teller"
-# download renders/teller/<id>.mp3 + .chapters.json into audio/, then tools/publish.py
-```
+**It costs nothing.** The model runs on the private ZeroGPU Space
+[`arjun10g/teller-tts`](https://huggingface.co/spaces/arjun10g/teller-tts)
+(source in `tools/voice_clone/space/`), inside the PRO account's free daily GPU
+allowance of 40 minutes. Rendering needs about 0.9 GPU-seconds per second of
+audio, so a 45-minute lecture fits in one day's allowance; a longer one pauses
+and finishes the next day. So adding a Teller lecture is the same as any other:
+write it, add `"engine": "clone", "voice": "teller"` to its catalog entry, push.
+CI renders it through the Space, and a daily scheduled run resumes any render
+the allowance paused, then publishes.
 
-About 20 minutes and $1 of A100 time per hour of audio. Long paragraphs are
-split into sentence groups, and any chunk whose length is far off Teller's
-measured speaking rate is regenerated.
+Guard rails: finished chunks are cached (`.tts_cache/`, kept in the Actions
+cache), and the client stops at 36 free minutes per rolling 24 hours
+(`ZEROGPU_BUDGET_MIN`). This matters because past the allowance Hugging Face
+bills *prepaid credits* if the account holds any; with a $0 credit balance the
+Space just refuses. Long paragraphs are split into sentence groups, and any
+chunk far off Teller's measured speaking rate is regenerated.
+
+To render locally instead (your Mac only coordinates; the Space does the work):
+`HF_TOKEN=… python tools/generate_lecture.py <id>` (needs `pip install
+gradio_client numpy`). `CLONE_BACKEND=local` runs the model on a local GPU,
+e.g. inside a paid HF Job (`tools/voice_clone/stage3_render.py`).
 
 How it was chosen (`tools/voice_clone/`, all run as HF Jobs): real Teller
 narration was cut into prompt, held-out and training clips; two models

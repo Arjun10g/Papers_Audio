@@ -362,22 +362,89 @@ def trim_silence(a: np.ndarray, sr: int, keep: float = 0.05) -> np.ndarray:
     return a[max(0, loud[0] - pad): loud[-1] + pad]
 
 
+class QuotaPause(Exception):
+    """The free ZeroGPU allowance for today is used up; finished chunks are cached, rerun later."""
+
+
+class SpaceBackend:
+    """Batched calls to the private ZeroGPU Space named in the voice profile.
+
+    ZeroGPU is free within a daily allowance (40 GPU-minutes for PRO). Past it, Hugging Face
+    bills any prepaid credits, so a local ledger stops at ZEROGPU_BUDGET_MIN (default 36) per
+    rolling 24 hours, and a quota error from the Space also pauses the render."""
+
+    def __init__(self, cfg: dict, voice: str, cache_dir: Path):
+        from gradio_client import Client
+        self.voice, self.cfg = voice, cfg
+        self.client = Client(cfg["space"], token=os.environ.get("HF_TOKEN"), verbose=False)
+        self.ledger = cache_dir.parent / "zerogpu_ledger.json"
+        self.budget = float(os.environ.get("ZEROGPU_BUDGET_MIN", "36")) * 60
+        self.sr = None
+
+    def _used(self) -> float:
+        try:
+            rows = json.loads(self.ledger.read_text())
+        except (FileNotFoundError, ValueError):
+            rows = []
+        return sum(s for t, s in rows if time.time() - t < 86_400), rows
+
+    def synth_many(self, texts: list[str], seed: int) -> list[np.ndarray]:
+        used, rows = self._used()
+        est = sum(len(t) for t in texts) / self.cfg.get("chars_per_sec", 19.0) * 0.9 + 10
+        if used + est > self.budget:
+            raise QuotaPause(f"{used / 60:.1f} of {self.budget / 60:.0f} free GPU-minutes used in the last 24 h")
+        try:
+            path = self.client.predict(json.dumps(texts), self.voice, seed, api_name="/synth")
+        except Exception as e:  # gradio_client raises AppError / generic errors for quota and queue issues
+            msg = str(e)
+            if "quota" in msg.lower() or "GPU task aborted" in msg:
+                raise QuotaPause(f"ZeroGPU refused the call: {msg[:200]}")
+            raise
+        z = np.load(path)
+        self.sr = int(z["sr"])
+        rows.append([time.time(), float(z["gpu_s"])])
+        self.ledger.write_text(json.dumps([r for r in rows if time.time() - r[0] < 86_400]))
+        return [z[f"c{i}"].astype(np.float32) / 32767 for i in range(len(texts))]
+
+
+class LocalBackend:
+    """The same model on this machine's GPU (e.g. an HF Job): CLONE_BACKEND=local."""
+
+    def __init__(self, cfg: dict):
+        import torch
+        self.torch = torch
+        self.synth, self.sr = clone_backend(cfg)
+
+    def synth_many(self, texts: list[str], seed: int) -> list[np.ndarray]:
+        out = []
+        for i, t in enumerate(texts):
+            self.torch.manual_seed(seed + i)
+            out.append(self.synth(t))
+        return out
+
+
 def synthesize_clone(blocks: list[Block], voice: str, speed: float):
     """Same contract as synthesize_kokoro, with a voice cloned by an open-weight model.
 
-    Long paragraphs are split into sentence groups (long inputs make these models speed
-    up or run on), and each chunk is length-checked against the voice's measured speaking
-    rate: a chunk far too short (truncated) or too long (babbling) is regenerated, keeping
-    the attempt closest to the expected length."""
+    Runs on the voice's private ZeroGPU Space when the profile names one (free within the
+    daily allowance), otherwise on a local GPU. Long paragraphs are split into sentence groups
+    (long inputs make these models speed up or run on); chunks are rendered in batches, and any
+    chunk far off the voice's measured speaking rate (truncated or babbling) is regenerated with
+    a new seed, keeping the attempt closest to the expected length. Accepted chunks are cached
+    in .tts_cache/, so a render paused by the daily GPU allowance resumes where it stopped."""
     global SAMPLE_RATE, BITRATE
-    import torch
+    import hashlib
     cfg = load_voice(voice)
-    synth, SAMPLE_RATE = clone_backend(cfg)
-    BITRATE = "128k" if SAMPLE_RATE > 24_000 else "96k"
     cps, max_chars = cfg.get("chars_per_sec", 19.0), cfg.get("max_chars", 320)
-    gap = np.zeros(int(SAMPLE_RATE * cfg.get("sentence_gap", 0.12)), dtype=np.float32)
     if speed != 1.0:
         print("  note: --speed is ignored for the clone engine")
+    version = hashlib.sha1(json.dumps({k: cfg.get(k) for k in ("model", "prompt_text", "params", "lora")},
+                                      sort_keys=True).encode()).hexdigest()[:10]
+    cache = ROOT / ".tts_cache" / f"{voice}-{version}"
+    cache.mkdir(parents=True, exist_ok=True)
+    key = lambda text: cache / (hashlib.sha1(text.encode()).hexdigest() + ".npy")
+    use_space = cfg.get("space") and os.environ.get("CLONE_BACKEND", "space") != "local"
+    backend = None
 
     def chunks(text: str) -> list[str]:
         out, cur = [], ""
@@ -387,30 +454,66 @@ def synthesize_clone(blocks: list[Block], voice: str, speed: float):
             cur += s + " "
         return out + ([cur.strip()] if cur.strip() else [])
 
-    def guarded(text: str) -> np.ndarray:
-        want = len(text) / cps
-        best, best_err = None, float("inf")
-        for attempt in range(4):
-            torch.manual_seed(1234 + attempt)
-            a = trim_silence(synth(text), SAMPLE_RATE)
-            ratio = (len(a) / SAMPLE_RATE) / max(want, 0.3)
-            err = abs(np.log(max(ratio, 1e-3)))
-            if err < best_err:
-                best, best_err = a, err
-            if 0.55 <= ratio <= 1.8:
-                break
-            print(f"    retry {attempt + 1}: {ratio:.2f}x expected length for {text[:50]!r}", flush=True)
-        return best
+    plan = [(b, chunks(b.text)) for b in blocks]
+    todo = list(dict.fromkeys(c for _, cs in plan for c in cs if not key(c).exists()))
+    total = len({c for _, cs in plan for c in cs})
+    print(f"  {total - len(todo)}/{total} chunks cached; rendering {len(todo)} "
+          f"on {'ZeroGPU Space ' + cfg['space'] if use_space else 'local GPU'}", flush=True)
 
-    for b in blocks:
-        parts = [guarded(c) for c in chunks(b.text)]
+    best: dict[str, tuple[float, np.ndarray]] = {}
+    batch_chars = int(cfg.get("batch_chars", 1200))
+    for attempt in range(4):
+        if not todo:
+            break
+        if backend is None:
+            backend = SpaceBackend(cfg, voice, cache) if use_space else LocalBackend(cfg)
+        batches, cur = [], []
+        for t in todo:
+            if cur and sum(map(len, cur)) + len(t) > batch_chars:
+                batches.append(cur); cur = []
+            cur.append(t)
+        batches += [cur] if cur else []
+        retry = []
+        for bi, batch in enumerate(batches, 1):
+            clips = backend.synth_many(batch, seed=1234 + 1000 * attempt)
+            for text, a in zip(batch, clips):
+                a = trim_silence(a, backend.sr)
+                ratio = (len(a) / backend.sr) / max(len(text) / cps, 0.3)
+                err = abs(np.log(max(ratio, 1e-3)))
+                if text not in best or err < best[text][0]:
+                    best[text] = (err, a)
+                if 0.55 <= ratio <= 1.8 or attempt == 3:
+                    np.save(key(text), np.round(best[text][1] * 32767).astype(np.int16))
+                    (cache / "sr").write_text(str(backend.sr))
+                else:
+                    retry.append(text)
+                    print(f"    retry: {ratio:.2f}x expected length for {text[:50]!r}", flush=True)
+            done = total - len(todo) + sum(len(b) for b in batches[:bi])
+            print(f"  batch {bi}/{len(batches)} (pass {attempt + 1}): {done}/{total} chunks", flush=True)
+        todo = retry
+
+    SAMPLE_RATE = int((cache / "sr").read_text())
+    BITRATE = "128k" if SAMPLE_RATE > 24_000 else "96k"
+    gap = np.zeros(int(SAMPLE_RATE * cfg.get("sentence_gap", 0.12)), dtype=np.float32)
+    for b, cs in plan:
         out = []
-        for i, a in enumerate(parts):
-            out += ([gap] if i else []) + [a]
+        for i, c in enumerate(cs):
+            out += ([gap] if i else []) + [np.load(key(c)).astype(np.float32) / 32767]
         yield b, (np.concatenate(out) if out else np.zeros(0, dtype=np.float32))
 
 
 ENGINES = {"kokoro": synthesize_kokoro, "speechify": synthesize_speechify, "clone": synthesize_clone}
+EXIT_PAUSED = 75     # render paused by the daily GPU allowance; CI treats this as "try again later"
+
+
+def paused_exit(gen):
+    """Turn a QuotaPause from the clone engine into a clean, resumable exit."""
+    try:
+        yield from gen
+    except QuotaPause as e:
+        print(f"\nPAUSED: {e}.\nFinished chunks are cached in .tts_cache/; rerun the same command "
+              f"after the allowance resets (24 h after its first use) to continue.", flush=True)
+        sys.exit(EXIT_PAUSED)
 
 
 def encode_mp3(samples: np.ndarray, dest: Path, title: str) -> None:
@@ -475,7 +578,7 @@ def main() -> None:
     t = 0.0
     t0 = time.time()
 
-    for i, (b, audio) in enumerate(ENGINES[engine](blocks, voice, args.speed), 1):
+    for i, (b, audio) in enumerate(paused_exit(ENGINES[engine](blocks, voice, args.speed)), 1):
         if b.level:
             pieces.append(silence(GAP_HEADING)); t += GAP_HEADING
             if b.level == 2:
