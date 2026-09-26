@@ -8,6 +8,10 @@ _concat.txt
 # Files from the pre-September-2026 flat layout, parked for reference.
 _legacy/
 
+# Cloned-voice profiles (prompt clips, LoRA weights) stay in the private HF repo
+# arjun10g/papers-audio-voice, never in this public repo.
+voices/
+
 # The old per-lecture Speechify scripts carried a hardcoded API key.
 *_speech.py
 

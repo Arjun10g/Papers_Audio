@@ -73,6 +73,39 @@ repository secret for CI). List the account's voice ids with
 `curl -H "Authorization: Bearer $SPEECHIFY_API_KEY" https://api.sws.speechify.com/v1/voices`.
 `--engine` / `--voice` on the command line override the catalog.
 
+### The Teller voice, without Speechify
+
+`"engine": "clone", "voice": "teller"` narrates with an open-weight clone of
+the Speechify "Teller" voice: **VoxCPM2** (Apache-2.0, 48 kHz) plus a **LoRA
+fine-tuned on about 19 minutes of Teller narration**. The profile (prompt clip,
+transcript, LoRA weights) lives in the **private** HF dataset
+`arjun10g/papers-audio-voice` under `voices/teller/`, never in this repo. It
+needs a GPU, so renders run as Hugging Face Jobs:
+
+```bash
+# upload tools/generate_lecture.py, catalog.json and lectures/<id>.md to render_bundle/, then
+hf jobs run --flavor a100-large --secrets HF_TOKEN -e PIP="voxcpm numpy" \
+  pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime bash -c "<boot> stage3_render.py <id> teller"
+# download renders/teller/<id>.mp3 + .chapters.json into audio/, then tools/publish.py
+```
+
+About 20 minutes and $1 of A100 time per hour of audio. Long paragraphs are
+split into sentence groups, and any chunk whose length is far off Teller's
+measured speaking rate is regenerated.
+
+How it was chosen (`tools/voice_clone/`, all run as HF Jobs): real Teller
+narration was cut into prompt, held-out and training clips; two models
+(VoxCPM2, Qwen3-TTS) read the held-out sentences, and each system was scored
+for speaker similarity against real Teller (ECAPA), word error (Whisper
+large-v3) and pace. Held-out results:
+
+| system | similarity | WER | pace |
+|---|---|---|---|
+| real Teller vs itself (ceiling) | 0.881 | 2.6% | 1.00 |
+| **VoxCPM2 + Teller LoRA (1,000 steps)** | **0.835** | **2.6%** | 1.06 |
+| VoxCPM2 zero-shot, 25 s reference | 0.789 | 2.7% | 1.01 |
+| Qwen3-TTS zero-shot, 25 s reference | 0.782 | 2.2% | 1.05 |
+
 ## The app
 
 Vanilla HTML/CSS/JS in `app/`, no build step. Offline downloads go through the

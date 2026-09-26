@@ -67,7 +67,14 @@ jobs:
         if: steps.missing.outputs.count != '0'
         run: |
           while read -r id; do
-            [ -n "$id" ] && python tools/generate_lecture.py "$id"
+            [ -n "$id" ] || continue
+            engine=$(python -c "import json,sys; print(next((l.get('engine','kokoro') for l in json.load(open('catalog.json'))['lectures'] if l['id']==sys.argv[1]),'kokoro'))" "$id")
+            if [ "$engine" = "clone" ]; then
+              # cloned voices need a GPU: render with an HF Job (see README), then publish locally
+              echo "::warning::$id uses a cloned voice and has no audio yet; render it on an HF Job (tools/voice_clone/stage3_render.py)"
+              continue
+            fi
+            python tools/generate_lecture.py "$id"
           done < missing.txt
 
       - name: Publish to Hugging Face

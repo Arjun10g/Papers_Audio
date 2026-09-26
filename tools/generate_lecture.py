@@ -31,7 +31,8 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-SAMPLE_RATE = 24_000
+SAMPLE_RATE = 24_000      # an engine may raise this (the clone engine uses its model's rate)
+BITRATE = "96k"
 GAP_PARA = 0.35       # seconds of silence after a paragraph
 GAP_HEADING = 0.9     # before a heading
 GAP_AFTER_HEADING = 0.45
@@ -290,7 +291,126 @@ def synthesize_speechify(blocks: list[Block], voice: str, speed: float):
     yield from flush()
 
 
-ENGINES = {"kokoro": synthesize_kokoro, "speechify": synthesize_speechify}
+VOICE_REPO = "arjun10g/papers-audio-voice"     # private: prompt clips for cloned voices
+
+
+def load_voice(name: str) -> dict:
+    """voices/<name>/voice.json + its prompt clip, from ./voices (git-ignored) or the
+    private voice repo on Hugging Face (needs HF_TOKEN with read access)."""
+    local = ROOT / "voices" / name
+    if not (local / "voice.json").exists():
+        from huggingface_hub import snapshot_download
+        local = Path(snapshot_download(VOICE_REPO, repo_type="dataset",
+                                       allow_patterns=[f"voices/{name}/*", f"voices/{name}/**/*"])) / "voices" / name
+    if not (local / "voice.json").exists():
+        sys.exit(f"no voice profile voices/{name}/voice.json (locally or in {VOICE_REPO})")
+    cfg = json.loads((local / "voice.json").read_text(encoding="utf-8"))
+    cfg["prompt_wav"] = str(local / cfg["prompt_wav"])
+    if cfg.get("lora"):
+        cfg["lora"] = str(local / cfg["lora"])
+    return cfg
+
+
+def clone_backend(cfg: dict):
+    """(synth(text) -> float32 mono, sample_rate) for an open-weight cloning model.
+    Model packages are imported lazily: `pip install voxcpm` or `pip install qwen-tts`."""
+    model, p = cfg["model"], cfg.get("params", {})
+    if model == "voxcpm2":
+        from voxcpm import VoxCPM
+        kw = {}
+        if cfg.get("lora"):              # a LoRA fine-tuned on the voice, shipped inside the profile
+            from voxcpm.model.voxcpm import LoRAConfig
+            info = json.loads((Path(cfg["lora"]) / "lora_config.json").read_text(encoding="utf-8"))
+            kw = {"lora_config": LoRAConfig(**info["lora_config"]), "lora_weights_path": cfg["lora"]}
+        m = VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False, **kw)
+
+        def synth(text: str) -> np.ndarray:
+            return np.asarray(m.generate(text=text, prompt_wav_path=cfg["prompt_wav"],
+                                         prompt_text=cfg["prompt_text"], reference_wav_path=cfg["prompt_wav"],
+                                         cfg_value=p.get("cfg_value", 2.0),
+                                         inference_timesteps=p.get("inference_timesteps", 10)),
+                              dtype=np.float32).reshape(-1)
+        return synth, m.tts_model.sample_rate
+    if model == "qwen3":
+        import torch
+        from qwen_tts import Qwen3TTSModel
+        m = Qwen3TTSModel.from_pretrained("Qwen/Qwen3-TTS-12Hz-1.7B-Base", device_map="cuda:0",
+                                          dtype=torch.bfloat16)
+        prompt = m.create_voice_clone_prompt(ref_audio=cfg["prompt_wav"], ref_text=cfg["prompt_text"],
+                                             x_vector_only_mode=False)
+        sr_box = {}
+
+        def synth(text: str) -> np.ndarray:
+            wavs, sr = m.generate_voice_clone(text=text, language="English", voice_clone_prompt=prompt)
+            sr_box["sr"] = sr
+            return np.asarray(wavs[0], dtype=np.float32).reshape(-1)
+        synth("Warming up.")
+        return synth, sr_box["sr"]
+    sys.exit(f"unknown clone model {model!r}")
+
+
+def trim_silence(a: np.ndarray, sr: int, keep: float = 0.05) -> np.ndarray:
+    """Cut leading/trailing near-silence so the caller's pauses are the only pauses."""
+    if not a.size:
+        return a
+    win = max(1, int(sr * 0.01))
+    env = np.sqrt(np.convolve(a * a, np.ones(win) / win, mode="same"))
+    loud = np.flatnonzero(env > max(1e-4, 0.02 * env.max()))
+    if not loud.size:
+        return a[:0]
+    pad = int(sr * keep)
+    return a[max(0, loud[0] - pad): loud[-1] + pad]
+
+
+def synthesize_clone(blocks: list[Block], voice: str, speed: float):
+    """Same contract as synthesize_kokoro, with a voice cloned by an open-weight model.
+
+    Long paragraphs are split into sentence groups (long inputs make these models speed
+    up or run on), and each chunk is length-checked against the voice's measured speaking
+    rate: a chunk far too short (truncated) or too long (babbling) is regenerated, keeping
+    the attempt closest to the expected length."""
+    global SAMPLE_RATE, BITRATE
+    import torch
+    cfg = load_voice(voice)
+    synth, SAMPLE_RATE = clone_backend(cfg)
+    BITRATE = "128k" if SAMPLE_RATE > 24_000 else "96k"
+    cps, max_chars = cfg.get("chars_per_sec", 19.0), cfg.get("max_chars", 320)
+    gap = np.zeros(int(SAMPLE_RATE * cfg.get("sentence_gap", 0.12)), dtype=np.float32)
+    if speed != 1.0:
+        print("  note: --speed is ignored for the clone engine")
+
+    def chunks(text: str) -> list[str]:
+        out, cur = [], ""
+        for s in re.split(r"(?<=[.?!:;])\s+", text):
+            if cur and len(cur) + len(s) + 1 > max_chars:
+                out.append(cur.strip()); cur = ""
+            cur += s + " "
+        return out + ([cur.strip()] if cur.strip() else [])
+
+    def guarded(text: str) -> np.ndarray:
+        want = len(text) / cps
+        best, best_err = None, float("inf")
+        for attempt in range(4):
+            torch.manual_seed(1234 + attempt)
+            a = trim_silence(synth(text), SAMPLE_RATE)
+            ratio = (len(a) / SAMPLE_RATE) / max(want, 0.3)
+            err = abs(np.log(max(ratio, 1e-3)))
+            if err < best_err:
+                best, best_err = a, err
+            if 0.55 <= ratio <= 1.8:
+                break
+            print(f"    retry {attempt + 1}: {ratio:.2f}x expected length for {text[:50]!r}", flush=True)
+        return best
+
+    for b in blocks:
+        parts = [guarded(c) for c in chunks(b.text)]
+        out = []
+        for i, a in enumerate(parts):
+            out += ([gap] if i else []) + [a]
+        yield b, (np.concatenate(out) if out else np.zeros(0, dtype=np.float32))
+
+
+ENGINES = {"kokoro": synthesize_kokoro, "speechify": synthesize_speechify, "clone": synthesize_clone}
 
 
 def encode_mp3(samples: np.ndarray, dest: Path, title: str) -> None:
@@ -300,7 +420,7 @@ def encode_mp3(samples: np.ndarray, dest: Path, title: str) -> None:
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error",
          "-f", "f32le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-i", "pipe:0",
-         "-codec:a", "libmp3lame", "-b:a", "96k",
+         "-codec:a", "libmp3lame", "-b:a", BITRATE,
          "-metadata", f"title={title}", "-metadata", "artist=Papers, as Audio",
          str(dest)],
         input=samples.astype("<f4").tobytes(), check=True,
@@ -311,7 +431,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("id", help="lecture id: lectures/<id>.md → audio/<id>.mp3")
     ap.add_argument("--engine", choices=sorted(ENGINES),
-                    help="kokoro (free, local; default) or speechify (API, $SPEECHIFY_API_KEY); "
+                    help="kokoro (free, local; default), speechify (API, $SPEECHIFY_API_KEY), or clone "
+                         "(open-weight voice cloning on a GPU; --voice names a profile in voices/); "
                          "defaults to the lecture's `engine` in catalog.json")
     ap.add_argument("--voice", help="Kokoro voice name or Speechify voice id; "
                                     "defaults to the lecture's `voice` in catalog.json")

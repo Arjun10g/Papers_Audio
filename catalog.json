@@ -155,14 +155,18 @@
       "title": "Compression Is Part of the Compute",
       "series": "Quantization & Kernels",
       "bg": "https://images.unsplash.com/photo-1597852074816-d933c7d2b988?w=1920&q=80",
-      "published": "2026-09-25"
+      "published": "2026-09-25",
+      "engine": "clone",
+      "voice": "teller"
     },
     {
       "id": "trellis-quantization",
       "title": "Trellis Quantization: Trading Memory for Cheap Compute",
       "series": "Quantization & Kernels",
       "bg": "https://images.unsplash.com/photo-1555617981-dac3880eac6e?w=1920&q=80",
-      "published": "2026-09-25"
+      "published": "2026-09-25",
+      "engine": "clone",
+      "voice": "teller"
     }
   ]
 }
