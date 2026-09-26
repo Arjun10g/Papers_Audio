@@ -19,7 +19,7 @@ d = snapshot_download(REPO, repo_type="dataset", allow_patterns=["render_bundle/
 root = "/tmp/bundle"
 shutil.copytree(f"{d}/render_bundle", root, dirs_exist_ok=True)
 subprocess.run([sys.executable, "tools/generate_lecture.py", LID, "--engine", "clone", "--voice", VOICE, "--force"],
-               cwd=root, check=True)
+               cwd=root, check=True, env={**os.environ, "CLONE_BACKEND": "local"})   # this job has its own GPU
 api = HfApi()
 for name in (f"{LID}.mp3", f"{LID}.chapters.json"):
     api.upload_file(path_or_fileobj=f"{root}/audio/{name}", path_in_repo=f"renders/{VOICE}/{name}",
