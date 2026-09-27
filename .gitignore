@@ -13,6 +13,10 @@ _legacy/
 voices/
 .tts_cache/
 
+# Password-protected lectures: plaintext stays here (and in the private HF repo);
+# only encrypted files are ever published (see tools/lock_lecture.py).
+private/
+
 # The old per-lecture Speechify scripts carried a hardcoded API key.
 *_speech.py
 

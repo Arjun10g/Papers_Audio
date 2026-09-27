@@ -247,6 +247,13 @@ def main() -> None:
             entry["chapters"] = chapters
         lectures_out.append(entry)
 
+    # Password-protected lectures (tools/lock_lecture.py): ciphertext on the dataset at pinned
+    # URLs, placeholder titles, everything readable encrypted inside the entry. Appended as-is.
+    locked_file = ROOT / "locked.json"
+    if locked_file.exists():
+        for lec in json.loads(locked_file.read_text(encoding="utf-8"))["lectures"]:
+            lectures_out.append({**lec, "n": len(lectures_out) + 1})
+
     library = {
         "schema": 1,
         "title": cat.get("title", "Papers, as Audio"),

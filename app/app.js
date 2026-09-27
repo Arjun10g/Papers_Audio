@@ -17,12 +17,34 @@
        chapters?: [      // OPTIONAL in-lecture section markers, ascending
          { title: "Cold open", start: 0 },
          { title: "Section 2 – …", start: 312.4 }
-       ]
+       ],
+       locked?: {        // OPTIONAL — password-protected lecture (see below)
+         v: 1,
+         kdf:  { name: "PBKDF2", hash: "SHA-256", iterations: 600000, salt: "<b64, 16 B>" },
+         meta: { iv: "<b64, 12 B>", ct: "<b64>" }
+       }
      }]
    }
 
    `base` is pinned to a commit, so a full audio URL is immutable and doubles
-   as the Cache API key for an offline download.
+   as the Cache API key for an offline download. `audio` (and a locked
+   lecture's decrypted `doc`) may also be an absolute URL; fullUrl() passes
+   those through unchanged.
+
+   Locked lectures are published ONLY as ciphertext. Their outer title /
+   series / bg / doc / chapters are non-revealing placeholders; `duration` is
+   real and `bytes` is the ciphertext size.
+     key       = PBKDF2-HMAC-SHA-256(password UTF-8, salt, iterations) → AES-256-GCM
+     meta.ct   = AES-GCM(key, meta.iv) of UTF-8 JSON
+                 { title, series, bg, chapters: [{ title, start }], doc }
+                 — a failed tag check here is the "wrong password" signal
+     audio     = 12-byte IV ‖ AES-GCM ciphertext+tag of the mp3 bytes
+     meta.doc  = same packing, of the UTF-8 markdown transcript (or null)
+   The app decrypts on the device. The derived key lives in memory for the
+   session and, if the listener asks, in localStorage as
+   `pa.key.<id>.<salt>` (raw key, base64) — a new salt invalidates it.
+   Plaintext (title, chapters, transcript, audio) is never persisted: the
+   audio/docs caches only ever hold the ciphertext.
    ========================================================================== */
 
 (() => {
@@ -139,6 +161,10 @@ const el = {
 
   picker: $('#picker'), pickerTitle: $('#pickerTitle'), pickerOpts: $('#pickerOpts'),
   help: $('#help'), helpClose: $('#helpClose'),
+  sheetEyebrow: $('#sheetEyebrow'), btnLock: $('#btnLock'),
+  unlock: $('#unlock'), unlockForm: $('#unlockForm'), unlockSub: $('#unlockSub'),
+  unlockUser: $('#unlockUser'), unlockPw: $('#unlockPw'), unlockErr: $('#unlockErr'),
+  unlockRemember: $('#unlockRemember'), unlockGo: $('#unlockGo'), unlockCancel: $('#unlockCancel'),
   toasts: $('#toasts'),
 };
 
@@ -168,6 +194,9 @@ const state = {
   swReg: null,
   updateAccepted: false,
   installPrompt: null,
+  blobUrl: '',           // object URL of the decrypted audio now in <audio>
+  blobFor: null,         // id of the locked lecture that blob belongs to
+  preparing: null,       // id of the locked lecture being fetched / decrypted
 };
 
 const current = () => (state.i >= 0 ? state.lectures[state.i] : null);
@@ -201,6 +230,135 @@ function progressOf(l) {
   return clamp(savedPos(l.id) / d, 0, 1);
 }
 
+/* ── locked lectures: keys + decrypted metadata (memory only) ───────────── */
+
+const SUBTLE = (window.crypto && window.crypto.subtle) || null;
+const NO_CRYPTO = 'Unlocking needs a secure (https) connection — this browser has no Web Crypto here.';
+
+const LOCK_ART = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+  '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+  '<stop offset="0" stop-color="#2a3142"/><stop offset="1" stop-color="#121722"/></linearGradient></defs>' +
+  '<rect width="100" height="100" fill="url(#g)"/>' +
+  '<g transform="translate(29 28) scale(1.75)"><path fill="#ff3d68" fill-rule="evenodd" d="' +
+  'M12 1.8a5.2 5.2 0 0 0-5.2 5.2v2.6H6A2 2 0 0 0 4 11.6v8.6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8.6' +
+  'a2 2 0 0 0-2-2h-.8V7A5.2 5.2 0 0 0 12 1.8zm-3.2 7.8V7a3.2 3.2 0 1 1 6.4 0v2.6z' +
+  'M12 13.4a1.8 1.8 0 0 1 1 3.3V19h-2v-2.3a1.8 1.8 0 0 1 1-3.3z"/></g></svg>');
+
+/** what the UI shows for a locked lecture nobody has unlocked yet */
+const SEALED_VIEW = Object.freeze({ title: 'Locked lecture', series: 'Locked', bg: LOCK_ART, doc: null, chapters: [] });
+
+const vault = new Map();     // id -> { salt, ct, key: CryptoKey, view: { title, series, bg, doc, chapters } }
+const plainDocs = new Map(); // id -> decrypted transcript text (memory only)
+
+const isLocked = l => !!(l && l.locked);
+/** the vault entry, but only if it still matches this manifest's salt + meta */
+function unlockedEntry(l) {
+  if (!isLocked(l)) return null;
+  const v = vault.get(l.id);
+  return v && v.salt === l.locked.kdf.salt && v.ct === l.locked.meta.ct ? v : null;
+}
+const sealed = l => isLocked(l) && !unlockedEntry(l);
+/** display fields — the lecture itself, or its decrypted / placeholder view */
+function info(l) {
+  if (!isLocked(l)) return l;
+  const v = unlockedEntry(l);
+  return v ? v.view : SEALED_VIEW;
+}
+
+const keyPrefix = id => 'key.' + id + '.';
+const keyName = l => keyPrefix(l.id) + l.locked.kdf.salt;
+
+/** remove remembered keys for this lecture (all salts, or all but `keep`) */
+function forgetKeys(id, keep) {
+  const pre = NS + keyPrefix(id);
+  try {
+    for (let k = localStorage.length - 1; k >= 0; k--) {
+      const name = localStorage.key(k);
+      if (!name || name.indexOf(pre) !== 0) continue;
+      const salt = name.slice(pre.length);
+      if (salt.indexOf('.') >= 0 || salt === keep) continue;   // another id, or the live one
+      localStorage.removeItem(name);
+    }
+  } catch (e) {}
+}
+
+function b64d(s) {
+  const bin = atob(String(s || ''));
+  const out = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) out[k] = bin.charCodeAt(k);
+  return out;
+}
+function b64e(buf) {
+  const u8 = new Uint8Array(buf);
+  let bin = '';
+  for (let k = 0; k < u8.length; k++) bin += String.fromCharCode(u8[k]);
+  return btoa(bin);
+}
+
+function lockSupported(k) {
+  return !!k && k.v === 1 && k.kdf.name === 'PBKDF2' && k.kdf.iterations > 0
+      && !!k.kdf.salt && !!k.meta.iv && !!k.meta.ct;
+}
+
+async function deriveKey(password, kdf, extractable) {
+  const base = await SUBTLE.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return SUBTLE.deriveKey(
+    { name: 'PBKDF2', hash: kdf.hash || 'SHA-256', salt: b64d(kdf.salt), iterations: kdf.iterations },
+    base, { name: 'AES-GCM', length: 256 }, !!extractable, ['decrypt']);
+}
+
+/** 12-byte IV ‖ ciphertext+tag  ->  ArrayBuffer of plaintext */
+function openPacked(key, bytes) {
+  if (!bytes || bytes.byteLength < 28) return Promise.reject(new Error('truncated file'));
+  return SUBTLE.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, key, bytes.subarray(12));
+}
+
+/** decrypt meta.ct — throws (OperationError) when the key is wrong */
+async function openMeta(l, key) {
+  const m = l.locked.meta;
+  const plain = await SUBTLE.decrypt({ name: 'AES-GCM', iv: b64d(m.iv) }, key, b64d(m.ct));
+  const meta = JSON.parse(new TextDecoder().decode(plain)) || {};
+  return {
+    salt: l.locked.kdf.salt, ct: m.ct, key,
+    view: {
+      title: String(meta.title || 'Untitled lecture'),
+      series: String(meta.series || 'Locked'),
+      bg: meta.bg ? String(meta.bg) : '',
+      doc: meta.doc ? String(meta.doc) : null,
+      chapters: normChapters(meta.chapters),
+    },
+  };
+}
+
+/** bring back keys remembered on this device, and re-open metadata whose
+ *  ciphertext changed under a key we still hold. Resolves true on changes. */
+async function restoreUnlocks() {
+  if (!SUBTLE) return false;
+  const jobs = state.lectures.filter(isLocked).map(async l => {
+    if (!lockSupported(l.locked)) return false;
+    forgetKeys(l.id, l.locked.kdf.salt);                    // keys for an old salt are dead
+    const ent = vault.get(l.id);
+    let key = ent && ent.salt === l.locked.kdf.salt ? ent.key : null;
+    if (key && ent.ct === l.locked.meta.ct) return false;   // already open
+    if (!key) {
+      const raw = store.get(keyName(l), '');
+      if (!raw) return false;
+      try { key = await SUBTLE.importKey('raw', b64d(raw), 'AES-GCM', false, ['decrypt']); }
+      catch (e) { store.del(keyName(l)); return false; }
+    }
+    try { vault.set(l.id, await openMeta(l, key)); return true; }
+    catch (e) { vault.delete(l.id); store.del(keyName(l)); return false; }
+  });
+  const changed = (await Promise.all(jobs)).some(Boolean);
+  if (changed) {
+    renderList();
+    renderContinue();
+    if (isLocked(current())) paintNowPlaying();
+  }
+  return changed;
+}
+
 /* ── toasts ─────────────────────────────────────────────────────────────── */
 
 function toast(msg, opts) {
@@ -228,7 +386,7 @@ function toast(msg, opts) {
 
 /* ── layer navigation (Android Back closes the top layer) ───────────────── */
 
-const LAYERS = ['player', 'chapters', 'reader', 'picker', 'help'];
+const LAYERS = ['player', 'chapters', 'reader', 'picker', 'help', 'unlock'];
 const nav = {
   stack: [],
   has(n) { return this.stack.indexOf(n) >= 0; },
@@ -245,6 +403,15 @@ const nav = {
     try { history.go(-steps); } catch (e) { this.stack = this.stack.slice(0, i); apply(); }
   },
   closeTop() { if (this.stack.length) this.close(this.stack[this.stack.length - 1]); },
+  /** swap the top layer for another in place (no extra Back step) */
+  replace(from, to) {
+    const i = this.stack.indexOf(from);
+    if (i < 0 || i !== this.stack.length - 1) return this.open(to);
+    if (this.has(to)) return this.close(from);
+    this.stack = this.stack.slice(0, i).concat(to);
+    try { history.replaceState({ pa: this.stack }, ''); } catch (e) {}
+    apply();
+  },
 };
 
 function apply() {
@@ -260,6 +427,7 @@ function apply() {
   on(el.reader, 'reader');
   on(el.picker, 'picker');
   on(el.help, 'help');
+  on(el.unlock, 'unlock');
   document.body.classList.toggle('no-scroll', s.length > 0);
 }
 
@@ -267,9 +435,29 @@ window.addEventListener('popstate', e => {
   const st = e.state && Array.isArray(e.state.pa) ? e.state.pa : [];
   nav.stack = st.filter(n => LAYERS.indexOf(n) >= 0);
   apply();
+  if (!nav.has('unlock') && unlockWant) { unlockWant = null; el.unlockPw.value = ''; }
 });
 
 /* ── library ────────────────────────────────────────────────────────────── */
+
+function normChapters(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(c => c && isFinite(Number(c.start)))
+    .map(c => ({ title: String(c.title || ''), start: Math.max(0, Number(c.start)) }))
+    .sort((a, b) => a.start - b.start);
+}
+
+/** keep only the ciphertext fields of `locked`; anything truthy stays locked */
+function normLocked(k) {
+  if (!k) return null;
+  const kdf = k.kdf || {}, meta = k.meta || {};
+  return {
+    v: Number(k.v) || 0,
+    kdf: { name: String(kdf.name || ''), hash: String(kdf.hash || 'SHA-256'),
+           iterations: Number(kdf.iterations) || 0, salt: String(kdf.salt || '') },
+    meta: { iv: String(meta.iv || ''), ct: String(meta.ct || '') },
+  };
+}
 
 function normalise(raw) {
   if (!raw || !Array.isArray(raw.lectures)) throw new Error('bad manifest');
@@ -287,11 +475,10 @@ function normalise(raw) {
       doc: l.doc ? String(l.doc) : null,
       bg: l.bg ? String(l.bg) : '',
       published: l.published || '',
-      chapters: (Array.isArray(l.chapters) ? l.chapters : [])
-        .filter(c => c && isFinite(Number(c.start)))
-        .map(c => ({ title: String(c.title || ''), start: Math.max(0, Number(c.start)) }))
-        .sort((a, b) => a.start - b.start),
-    }));
+      chapters: normChapters(l.chapters),
+      locked: normLocked(l.locked),
+    }))
+    .map(l => (l.locked ? Object.assign(l, { series: 'Locked' }) : l));
   if (!lectures.length) throw new Error('empty manifest');
   return { title: raw.title || 'Papers, as Audio', base, revision: raw.revision || '', generated: raw.generated || '', lectures };
 }
@@ -342,6 +529,7 @@ function adoptLibrary(lib, source) {
   renderList();
   renderContinue();
   refreshStorage();
+  return restoreUnlocks();
 }
 
 /* ── library rendering ──────────────────────────────────────────────────── */
@@ -358,32 +546,42 @@ function skeletons(n) {
 
 function matches(l, q) {
   if (!q) return true;
+  if (isLocked(l)) {                       // never search the placeholders' id / hidden fields
+    const v = info(l);
+    return (v.title + ' ' + v.series + ' locked').toLowerCase().indexOf(q) >= 0 || String(l.n) === q;
+  }
   return l.title.toLowerCase().indexOf(q) >= 0
       || l.series.toLowerCase().indexOf(q) >= 0
       || String(l.n) === q
       || l.id.toLowerCase().indexOf(q) >= 0;
 }
 
+const LOCK_IC = '<svg class="ic ic-lock" aria-hidden="true"><use href="#i-lock"></use></svg>';
+
 function rowHtml(l) {
+  const v = info(l);
+  const shut = sealed(l);
   const p = progressOf(l);
   const done = isDone(l.id);
   const dl = state.downloaded.has(audioUrl(l));
-  const chaps = l.chapters.length;
+  const chaps = v.chapters.length;
   const cur = state.i >= 0 && state.lectures[state.i].id === l.id;
 
   let statusBit = '';
   if (done) statusBit = `<i class="dot"></i><span class="done">✓ Finished</span>`;
   else if (p > 0.01) statusBit = `<i class="dot"></i><span>${esc(mins((l.duration || 0) * (1 - p)))} left</span>`;
 
-  return `<button class="row${cur ? ' is-current' : ''}" type="button" role="listitem" data-id="${esc(l.id)}">
+  return `<button class="row${cur ? ' is-current' : ''}${shut ? ' is-locked' : ''}" type="button" role="listitem" data-id="${esc(l.id)}">
     <span class="row-art">
-      <img src="${esc(artUrl(l.bg, 160))}" alt="" loading="lazy" decoding="async" width="50" height="50">
+      <img src="${esc(artUrl(v.bg, 160))}" alt="" loading="lazy" decoding="async" width="50" height="50">
       <span class="n">${esc(String(l.n))}</span>
     </span>
     <span class="row-main">
-      <span class="row-title">${esc(l.title)}</span>
+      <span class="row-title">${shut ? LOCK_IC : ''}${esc(v.title)}</span>
       <span class="row-sub">
+        ${isLocked(l) && !shut ? `<span class="row-series">${LOCK_IC}${esc(v.series)}</span><i class="dot"></i>` : ''}
         <span>${esc(mins(l.duration))}</span>
+        ${shut ? '<i class="dot"></i><span>Tap to unlock</span>' : ''}
         ${chaps ? `<i class="dot"></i><span>${chaps} chapters</span>` : ''}
         ${statusBit}
       </span>
@@ -424,17 +622,18 @@ function renderContinue() {
   if (!l) l = state.lectures.find(x => !isDone(x.id)) || state.lectures[0];
   if (!l) { el.continueSlot.innerHTML = ''; return; }
 
+  const v = info(l);
   const p = progressOf(l);
   const left = (l.duration || 0) * (1 - p);
   const sub = resuming ? `${mins(left)} left · ${Math.round(p * 100)}% done`
             : isDone(l.id) ? 'Finished · play again'
-            : `${mins(l.duration)} · ${l.series}`;
+            : `${mins(l.duration)} · ${v.series}`;
 
   el.continueSlot.innerHTML = `<button class="continue" type="button" data-id="${esc(l.id)}">
-    <img class="continue-art" src="${esc(artUrl(l.bg, 200))}" alt="" decoding="async">
+    <img class="continue-art" src="${esc(artUrl(v.bg, 200))}" alt="" decoding="async">
     <span class="continue-main">
       <span class="continue-eyebrow">${resuming ? 'Continue listening' : 'Start here'}</span>
-      <span class="continue-title">${esc(l.title)}</span>
+      <span class="continue-title">${sealed(l) ? LOCK_IC : ''}${esc(v.title)}</span>
       <span class="continue-sub">${esc(sub)}</span>
     </span>
     <span class="continue-play" aria-hidden="true"><svg class="ic"><use href="#i-play"></use></svg></span>
@@ -507,6 +706,24 @@ function updateRowDl(id) {
   }
 }
 
+/** read a response body chunk by chunk, reporting each chunk's size */
+async function readChunks(res, onChunk) {
+  const chunks = [];
+  if (res.body && res.body.getReader) {
+    const reader = res.body.getReader();
+    for (;;) {
+      const step = await reader.read();
+      if (step.done) break;
+      chunks.push(step.value);
+      onChunk(step.value.length);
+    }
+  } else {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    chunks.push(buf); onChunk(buf.length);
+  }
+  return chunks;
+}
+
 async function startDownload(l) {
   if (!l || state.dl.has(l.id)) return false;
   if (!('caches' in window)) { toast('Offline downloads need a secure (https) connection'); return false; }
@@ -526,28 +743,20 @@ async function startDownload(l) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     rec.total = Number(res.headers.get('content-length')) || l.bytes || 0;
 
-    const chunks = [];
-    if (res.body && res.body.getReader) {
-      const reader = res.body.getReader();
-      let tick = 0;
-      for (;;) {
-        const step = await reader.read();
-        if (step.done) break;
-        chunks.push(step.value);
-        rec.loaded += step.value.length;
-        if (++tick % 4 === 0) { paintDownloadTool(); updateRowDl(l.id); refreshStorage(); }
-      }
-    } else {
-      const buf = new Uint8Array(await res.arrayBuffer());
-      chunks.push(buf); rec.loaded = buf.length;
-    }
+    let tick = 0;
+    const chunks = await readChunks(res, n => {
+      rec.loaded += n;
+      if (++tick % 4 === 0) { paintDownloadTool(); updateRowDl(l.id); refreshStorage(); }
+    });
 
-    const blob = new Blob(chunks, { type: 'audio/mpeg' });
+    // a locked lecture's download is its ciphertext, exactly as published
+    const type = isLocked(l) ? 'application/octet-stream' : 'audio/mpeg';
+    const blob = new Blob(chunks, { type });
     const cache = await caches.open(AUDIO_CACHE);
     await cache.put(url, new Response(blob, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/mpeg',
+        'Content-Type': type,
         'Content-Length': String(blob.size),
         'Accept-Ranges': 'bytes',
       },
@@ -560,7 +769,7 @@ async function startDownload(l) {
     const msg = String((err && err.message) || err);
     if (name === 'AbortError') { /* silent — the user asked */ }
     else if (/quota/i.test(name + msg)) toast('Storage is full — remove a download and try again');
-    else toast(`Could not download “${l.title}” (${msg})`);
+    else toast(`Could not download “${info(l).title}” (${msg})`);
   } finally {
     state.dl.delete(l.id);
     paintDownloadTool();
@@ -580,7 +789,7 @@ async function removeDownload(l) {
   paintDownloadTool();
   updateRowDl(l.id);
   refreshStorage();
-  toast(`Removed the download for “${l.title}”`);
+  toast(`Removed the download for “${info(l).title}”`);
 }
 
 async function downloadAll() {
@@ -625,9 +834,18 @@ function loadLecture(i, autoplay, seekTo) {
   state.pendingSeek = (seekTo != null) ? seekTo : savedPos(l.id);
 
   audio.pause();
-  audio.src = audioUrl(l);
-  audio.playbackRate = state.rate;
+  cancelPrep();
+  const oldBlob = state.blobUrl;
+  state.blobUrl = ''; state.blobFor = null;
+  if (isLocked(l)) {
+    // the element stays empty until the ciphertext is fetched and decrypted
+    audio.removeAttribute('src');
+  } else {
+    audio.src = audioUrl(l);
+    audio.playbackRate = state.rate;
+  }
   try { audio.load(); } catch (e) {}
+  if (oldBlob) URL.revokeObjectURL(oldBlob);
 
   store.set('last', l.id);
   paintNowPlaying();
@@ -635,16 +853,129 @@ function loadLecture(i, autoplay, seekTo) {
   renderContinue();
 
   if (autoplay) {
-    const p = audio.play();
-    if (p && p.catch) p.catch(() => {});
+    if (isLocked(l)) { if (!sealed(l)) prepareLocked(l, true); }
+    else {
+      const p = audio.play();
+      if (p && p.catch) p.catch(() => {});
+    }
   }
+}
+
+/* ── locked playback: fetch ciphertext -> decrypt -> object URL ─────────── */
+
+let prepToken = 0;
+function cancelPrep() {
+  prepToken++;
+  if (state.preparing) { state.preparing = null; paintPrep(''); }
+}
+
+/** "Decrypting…" on the play buttons + a status line in the sheet */
+function paintPrep(msg) {
+  const busy = !!msg;
+  el.btnPlay.classList.toggle('is-busy', busy);
+  el.miniPlay.classList.toggle('is-busy', busy);
+  el.btnPlay.title = el.miniPlay.title = msg || '';
+  el.sheetEyebrow.textContent = msg || 'Now playing';
+  if (busy) el.btnPlay.setAttribute('aria-label', msg);
+  else paintPlayState();
+  const l = current();
+  if (l) el.miniSub.textContent = msg || info(l).series;
+}
+
+/** ciphertext bytes: from the offline download if there is one, else the network */
+async function fetchCipher(l, onProgress) {
+  const url = audioUrl(l);
+  if ('caches' in window) {
+    try {
+      const cache = await caches.open(AUDIO_CACHE);
+      const hit = await cache.match(url);
+      if (hit) return new Uint8Array(await hit.arrayBuffer());
+    } catch (e) { /* fall through to the network */ }
+  }
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const total = Number(res.headers.get('content-length')) || l.bytes || 0;
+  let loaded = 0, tick = 0;
+  const chunks = await readChunks(res, n => {
+    loaded += n;
+    if (++tick % 4 === 0) onProgress(loaded, total);
+  });
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  chunks.forEach(c => { out.set(c, at); at += c.length; });
+  return out;
+}
+
+async function prepareLocked(l, autoplay) {
+  const ent = unlockedEntry(l);
+  if (!ent) return;
+  if (!SUBTLE) { toast(NO_CRYPTO, { ms: 5200 }); return; }
+  const token = ++prepToken;
+  const live = () => token === prepToken && current() && current().id === l.id;
+  state.preparing = l.id;
+  const cached = state.downloaded.has(audioUrl(l));
+  paintPrep(cached ? 'Decrypting…' : 'Fetching…');
+  try {
+    const packed = await fetchCipher(l, (loaded, total) => {
+      if (live()) paintPrep(total ? `Fetching ${Math.min(99, Math.round((loaded / total) * 100))}%` : 'Fetching…');
+    });
+    if (!live()) return;
+    paintPrep('Decrypting…');
+    const plain = await openPacked(ent.key, packed);
+    if (!live() || unlockedEntry(l) !== ent) return;
+    const old = state.blobUrl;
+    state.blobUrl = URL.createObjectURL(new Blob([plain], { type: 'audio/mpeg' }));
+    state.blobFor = l.id;
+    if (state.pendingSeek == null) state.pendingSeek = savedPos(l.id);
+    audio.src = state.blobUrl;
+    audio.playbackRate = state.rate;
+    try { audio.load(); } catch (e) {}
+    if (old) URL.revokeObjectURL(old);
+    if (autoplay) { const p = audio.play(); if (p && p.catch) p.catch(() => {}); }
+  } catch (err) {
+    if (!live()) return;
+    const msg = String((err && err.message) || err);
+    if (!navigator.onLine && !cached) toast('You are offline and this lecture is not downloaded.', { ms: 5200 });
+    else if (err && err.name === 'OperationError') toast('This lecture could not be decrypted — the file may have changed. Lock it and unlock again.', { ms: 6000 });
+    else toast(`Could not load this lecture (${msg})`, { ms: 5200 });
+  } finally {
+    if (token === prepToken) { state.preparing = null; paintPrep(''); }
+  }
+}
+
+/** forget the key (session + device) and return the lecture to its locked state */
+function lockLecture(l) {
+  if (!isLocked(l)) return;
+  const wasCurrent = current() && current().id === l.id;
+  if (wasCurrent) {
+    savePosition();                          // while the decrypted audio is still loaded
+    audio.pause();
+    cancelPrep();
+    const old = state.blobUrl;
+    state.blobUrl = ''; state.blobFor = null;
+    audio.removeAttribute('src');
+    try { audio.load(); } catch (e) {}
+    if (old) URL.revokeObjectURL(old);
+    if (nav.has('reader')) nav.close('reader');
+    if (nav.has('chapters')) nav.close('chapters');
+  }
+  vault.delete(l.id);
+  plainDocs.delete(l.id);
+  forgetKeys(l.id);
+  if (wasCurrent) { paintNowPlaying(); paintPlayState(); }
+  renderList();
+  renderContinue();
+  toast('Locked — the password is needed to listen again');
 }
 
 function play(id, opts) {
   opts = opts || {};
   const i = state.lectures.findIndex(l => l.id === id);
   if (i < 0) return;
-  if (state.i === i && audio.src) {
+  const l = state.lectures[i];
+  if (sealed(l)) { openUnlock(l.id, { play: true, openSheet: opts.openSheet !== false }); return; }
+  if (state.i === i && state.preparing === l.id) { /* already on its way */ }
+  else if (state.i === i && audio.src) {
     if (audio.paused) { const p = audio.play(); if (p && p.catch) p.catch(() => {}); }
   } else {
     loadLecture(i, true);
@@ -653,7 +984,13 @@ function play(id, opts) {
 }
 
 function togglePlay() {
-  if (!current()) return;
+  const l = current();
+  if (!l) return;
+  if (sealed(l)) { openUnlock(l.id, { play: true, openSheet: false }); return; }
+  if (isLocked(l) && state.blobFor !== l.id) {
+    if (state.preparing !== l.id) prepareLocked(l, true);
+    return;
+  }
   if (audio.paused) { const p = audio.play(); if (p && p.catch) p.catch(() => {}); }
   else audio.pause();
 }
@@ -668,6 +1005,8 @@ const skip = delta => seekTo((audio.currentTime || 0) + delta);
 function savePosition() {
   const l = current();
   if (!l) return;
+  // a locked lecture whose audio is not (yet) in the element has no position to report
+  if (isLocked(l) && state.blobFor !== l.id) { store.set('last', l.id); return; }
   const t = audio.currentTime, d = durationOf();
   if (isFinite(t) && d) {
     if (t > 5 && t < d - 8) store.set(posKey(l.id), t.toFixed(1));
@@ -678,7 +1017,7 @@ function savePosition() {
 
 /* ── chapters ───────────────────────────────────────────────────────────── */
 
-const chaptersOf = l => (l && l.chapters) || [];
+const chaptersOf = l => (l && info(l).chapters) || [];
 
 function chapterIndexAt(chs, t) {
   if (!chs.length) return -1;
@@ -758,22 +1097,26 @@ function gotoChapter(dir) {
 function paintNowPlaying() {
   const l = current();
   if (!l) return;
+  const v = info(l);
+  const shut = sealed(l);
 
-  const big = artUrl(l.bg, 800);
+  const big = artUrl(v.bg, 800);
   el.cover.src = big;
-  el.cover.alt = `Artwork for ${l.title}`;
+  el.cover.alt = shut ? 'Locked lecture' : `Artwork for ${v.title}`;
   el.sheetBg.style.backgroundImage = `url("${big}")`;
-  el.npSeries.textContent = l.series;
-  el.npTitle.textContent = l.title;
+  el.npSeries.textContent = v.series;
+  el.npTitle.textContent = v.title;
   el.sheetNum.textContent = `${l.n} / ${state.lectures.length}`;
   el.rateVal.textContent = `${state.rate}×`;
+  el.btnLock.hidden = !isLocked(l) || shut;
+  el.sheet.classList.toggle('is-locked', shut);
 
-  el.miniArt.src = artUrl(l.bg, 120);
-  el.miniTitle.textContent = l.title;
-  el.miniSub.textContent = l.series;
+  el.miniArt.src = artUrl(v.bg, 120);
+  el.miniTitle.textContent = v.title;
+  el.miniSub.textContent = state.preparing === l.id ? el.sheetEyebrow.textContent : v.series;
   el.mini.hidden = false;
 
-  el.btnRead.disabled = !l.doc;
+  el.btnRead.disabled = !v.doc;
   el.btnPrev.disabled = state.lectures.length < 2;
   el.btnNext.disabled = state.lectures.length < 2;
 
@@ -807,7 +1150,7 @@ function paintPlayState() {
   const playing = !audio.paused && !audio.ended;
   setIcon(el.btnPlay, playing ? 'i-pause' : 'i-play');
   setIcon(el.miniPlay, playing ? 'i-pause' : 'i-play');
-  el.btnPlay.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  if (!state.preparing) el.btnPlay.setAttribute('aria-label', playing ? 'Pause' : (sealed(current()) ? 'Unlock' : 'Play'));
   if ('mediaSession' in navigator) {
     try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch (e) {}
   }
@@ -838,6 +1181,7 @@ function paintDownloadTool() {
 function updateMediaSession() {
   const l = current();
   if (!l || !('mediaSession' in navigator)) return;
+  if (isLocked(l)) { lockedMediaSession(l); return; }
   try {
     if (window.MediaMetadata) {
       const art = artUrl(l.bg, 512);
@@ -849,6 +1193,23 @@ function updateMediaSession() {
           { src: artUrl(l.bg, 256), sizes: '256x256', type: 'image/jpeg' },
           { src: art, sizes: '512x512', type: 'image/jpeg' },
         ],
+      });
+    }
+  } catch (e) {}
+}
+
+/** decrypted title for an open lecture; artwork from its own bg or the app icon */
+function lockedMediaSession(l) {
+  const v = info(l);
+  try {
+    if (window.MediaMetadata) {
+      const artwork = v.bg && v.bg !== LOCK_ART
+        ? [{ src: artUrl(v.bg, 256), sizes: '256x256', type: 'image/jpeg' },
+           { src: artUrl(v.bg, 512), sizes: '512x512', type: 'image/jpeg' }]
+        : [{ src: new URL('./icons/icon-192.png', location.href).href, sizes: '192x192', type: 'image/png' },
+           { src: new URL('./icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }];
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: v.title, artist: 'Papers, as Audio', album: v.series, artwork,
       });
     }
   } catch (e) {}
@@ -1038,14 +1399,44 @@ async function typeset(node) {
   } catch (e) { /* maths just stays as source text */ }
 }
 
+/** ciphertext of a locked transcript — the docs cache only ever holds these bytes */
+async function fetchCipherDoc(url) {
+  let cache = null;
+  if ('caches' in window) { try { cache = await caches.open(DOC_CACHE); } catch (e) {} }
+  if (cache) {
+    const hit = await cache.match(url).catch(() => null);
+    if (hit) return new Uint8Array(await hit.arrayBuffer());
+  }
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const buf = await res.arrayBuffer();
+  if (cache) {
+    cache.put(url, new Response(buf.slice(0), { headers: { 'Content-Type': 'application/octet-stream' } })).catch(() => {});
+  }
+  return new Uint8Array(buf);
+}
+
+async function lockedDocText(l) {
+  const ent = unlockedEntry(l);
+  if (!ent || !ent.view.doc) throw new Error('locked');
+  const hit = plainDocs.get(l.id);
+  if (hit && hit.ct === ent.ct) return hit.text;
+  const plain = await openPacked(ent.key, await fetchCipherDoc(fullUrl(ent.view.doc)));
+  const text = new TextDecoder().decode(plain);
+  if (unlockedEntry(l) === ent) plainDocs.set(l.id, { ct: ent.ct, text });
+  return text;
+}
+
 async function openReader() {
   const l = current();
-  if (!l || !l.doc) return;
+  const v = l && info(l);
+  if (!l || !v.doc) return;
   nav.open('reader');
-  el.readerTitle.textContent = l.title;
+  el.readerTitle.textContent = v.title;
   el.readerBody.innerHTML = '<p class="reader-note">Loading transcript…</p>';
   try {
-    const text = await fetchDoc(fullUrl(l.doc));
+    const text = isLocked(l) ? await lockedDocText(l) : await fetchDoc(fullUrl(l.doc));
+    if (isLocked(l) && sealed(l)) return;       // locked again while it loaded
     el.readerBody.innerHTML = await renderMarkdown(text);
     el.readerBody.scrollTop = 0;
     if (/\\\(|\\\[|\$\$/.test(text)) await typeset(el.readerBody);
@@ -1060,6 +1451,91 @@ function setReaderFont(px) {
   el.readerBody.style.setProperty('--reader-font', v + 'px');
   store.set('readerFont', v);
   return v;
+}
+
+/* ── unlock sheet ───────────────────────────────────────────────────────── */
+
+let unlockWant = null;     // { id, play, openSheet } for the sheet on screen
+let unlockBusy = false;
+
+function unlockError(msg) {
+  el.unlockErr.textContent = msg || '';
+  el.unlockErr.hidden = !msg;
+  el.unlockPw.setAttribute('aria-invalid', msg ? 'true' : 'false');
+}
+function unlockSetBusy(on) {
+  unlockBusy = on;
+  el.unlockForm.classList.toggle('is-busy', on);
+  el.unlockGo.disabled = on;
+  el.unlockPw.readOnly = on;
+  el.unlockGo.querySelector('.unlock-go-l').textContent = on ? 'Unlocking…' : 'Unlock';
+}
+
+function openUnlock(id, want) {
+  const l = state.lectures.find(x => x.id === id);
+  if (!l || !isLocked(l)) return;
+  unlockWant = Object.assign({ id, play: false, openSheet: false }, want || {});
+  el.unlockSub.textContent = `Lecture ${l.n} · ${mins(l.duration)} — enter its password to listen.`;
+  el.unlockUser.value = l.id;               // lets password managers keep one entry per lecture
+  unlockSetBusy(false);
+  unlockError('');
+  if (!SUBTLE) { unlockError(NO_CRYPTO); el.unlockGo.disabled = true; }
+  else if (!lockSupported(l.locked)) { unlockError('This lecture uses a newer lock format — update the app.'); el.unlockGo.disabled = true; }
+  nav.open('unlock');
+  setTimeout(() => { if (nav.has('unlock')) { try { el.unlockPw.focus(); } catch (e) {} } }, 60);
+}
+
+async function submitUnlock(e) {
+  if (e) e.preventDefault();
+  const want = unlockWant;
+  if (unlockBusy || !want) return;
+  const l = state.lectures.find(x => x.id === want.id);
+  if (!l || !isLocked(l)) { nav.close('unlock'); return; }
+  if (!SUBTLE) { unlockError(NO_CRYPTO); return; }
+  if (!lockSupported(l.locked)) return;
+  const pw = el.unlockPw.value;
+  if (!pw) { unlockError('Enter the password.'); el.unlockPw.focus(); return; }
+  const remember = el.unlockRemember.checked;
+
+  unlockError('');
+  unlockSetBusy(true);
+  let ent = null;
+  try {
+    await new Promise(r => setTimeout(r, 16));   // let the spinner paint before PBKDF2 runs
+    const key = await deriveKey(pw, l.locked.kdf, remember);
+    try { ent = await openMeta(l, key); }
+    catch (err) { ent = null; }
+    if (ent && remember) {
+      try { store.set(keyName(l), b64e(await SUBTLE.exportKey('raw', key))); } catch (err) {}
+    }
+  } catch (err) {
+    unlockSetBusy(false);
+    unlockError(`Could not unlock here (${String((err && err.message) || err)}).`);
+    return;
+  }
+  unlockSetBusy(false);
+
+  if (!ent) {
+    if (unlockWant === want) {
+      unlockError('Wrong password — try again.');
+      try { el.unlockPw.focus(); el.unlockPw.select(); } catch (err) {}
+    }
+    return;
+  }
+
+  vault.set(l.id, ent);
+  if (!remember) forgetKeys(l.id);
+  else forgetKeys(l.id, l.locked.kdf.salt);
+  el.unlockPw.value = '';
+  renderList();
+  renderContinue();
+  if (current() && current().id === l.id) paintNowPlaying();
+
+  if (unlockWant !== want || !nav.has('unlock')) return;   // dismissed while deriving: stay unlocked, stay quiet
+  unlockWant = null;
+  if (want.openSheet && !nav.has('player')) nav.replace('unlock', 'player');
+  else nav.close('unlock');
+  if (want.play) play(l.id, { openSheet: false });
 }
 
 /* ── theme ──────────────────────────────────────────────────────────────── */
@@ -1193,7 +1669,7 @@ el.btnDownload.addEventListener('click', () => {
   const rec = state.dl.get(l.id);
   if (rec) { try { rec.ctrl.abort(); } catch (e) {} return; }
   if (state.downloaded.has(audioUrl(l))) removeDownload(l);
-  else startDownload(l).then(ok => { if (ok) { renderList(); toast(`“${l.title}” is available offline`); } });
+  else startDownload(l).then(ok => { if (ok) { renderList(); toast(`“${info(l).title}” is available offline`); } });
 });
 
 el.btnChapters.addEventListener('click', () => { renderChapterList(); nav.open('chapters'); });
@@ -1280,6 +1756,11 @@ el.btnInstall.addEventListener('click', async () => {
   el.btnInstall.hidden = true;
   try { p.prompt(); await p.userChoice; } catch (e) {}
 });
+
+el.unlockForm.addEventListener('submit', submitUnlock);
+el.unlockCancel.addEventListener('click', () => nav.close('unlock'));
+el.unlock.addEventListener('click', e => { if (e.target === el.unlock) nav.close('unlock'); });
+el.btnLock.addEventListener('click', () => { const l = current(); if (l) lockLecture(l); });
 
 el.readerClose.addEventListener('click', () => nav.close('reader'));
 let readerFont = parseFloat(store.get('readerFont', '17')) || 17;
@@ -1375,7 +1856,7 @@ async function boot() {
     el.storageLine.textContent = 'Library unavailable';
     return;
   }
-  adoptLibrary(lib, source);
+  await adoptLibrary(lib, source);
   if (source !== 'network') {
     toast(source === 'cache' ? 'Showing the last saved lecture list' : 'Showing the bundled lecture list');
   }

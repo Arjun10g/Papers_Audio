@@ -544,10 +544,16 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="print the narration script and chapters, no audio")
     args = ap.parse_args()
 
+    # password-protected lectures keep their text and catalog entry in the git-ignored private/
     src = ROOT / "lectures" / f"{args.id}.md"
     if not src.exists():
-        sys.exit(f"no transcript at {src}")
+        src = ROOT / "private" / "lectures" / f"{args.id}.md"
+    if not src.exists():
+        sys.exit(f"no transcript at lectures/{args.id}.md or private/lectures/{args.id}.md")
     catalog = json.loads((ROOT / "catalog.json").read_text(encoding="utf-8"))
+    private_catalog = ROOT / "private" / "catalog.json"
+    if private_catalog.exists():
+        catalog["lectures"] += json.loads(private_catalog.read_text(encoding="utf-8"))["lectures"]
     entry = next((l for l in catalog["lectures"] if l["id"] == args.id), {})
     engine = args.engine or entry.get("engine", "kokoro")
     voice = args.voice or entry.get("voice") or {"kokoro": "af_heart"}.get(engine)

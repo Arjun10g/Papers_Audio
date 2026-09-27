@@ -55,6 +55,7 @@ try{var t=localStorage.getItem("pa.theme");if(t==="light"||t==="dark")document.d
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 5h2.4v2.4H3zm4.6 0H21v2.4H7.6zM3 10.8h2.4v2.4H3zm4.6 0H21v2.4H7.6zM3 16.6h2.4V19H3zm4.6 0H21V19H7.6z"/></symbol>
   <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M15.4 6.6 14 5.2l-6.8 6.8L14 18.8l1.4-1.4-5.4-5.4z"/></symbol>
   <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M8.6 6.6 10 5.2l6.8 6.8L10 18.8l-1.4-1.4 5.4-5.4z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 1.8a5.2 5.2 0 0 0-5.2 5.2v2.6H6A2 2 0 0 0 4 11.6v8.6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8.6a2 2 0 0 0-2-2h-.8V7A5.2 5.2 0 0 0 12 1.8zm-3.2 7.8V7a3.2 3.2 0 1 1 6.4 0v2.6zM12 13.4a1.8 1.8 0 0 1 1 3.3V19h-2v-2.3a1.8 1.8 0 0 1 1-3.3z"/></symbol>
 </svg>
 
 <audio id="audio" preload="metadata" playsinline></audio>
@@ -116,6 +117,7 @@ try{var t=localStorage.getItem("pa.theme");if(t==="light"||t==="dark")document.d
     <div class="sheet-grab" id="sheetGrab">
       <button class="icon-btn" id="btnCloseSheet" aria-label="Minimise player"><svg class="ic"><use href="#i-chevron-down"></use></svg></button>
       <span class="sheet-eyebrow" id="sheetEyebrow">Now playing</span>
+      <button class="icon-btn sheet-lock" id="btnLock" aria-label="Lock this lecture again" title="Lock — forget the password on this device" hidden><svg class="ic"><use href="#i-lock"></use></svg></button>
       <span class="sheet-badge" id="sheetNum"></span>
     </div>
 
@@ -232,6 +234,33 @@ try{var t=localStorage.getItem("pa.theme");if(t==="light"||t==="dark")document.d
     </ul>
     <button class="btn-wide" id="helpClose">Close</button>
   </div>
+</div>
+
+<!-- ───────── unlock a password-protected lecture ───────── -->
+<div class="picker" id="unlock" aria-hidden="true">
+  <form class="picker-card unlock-card" id="unlockForm" role="dialog" aria-modal="true" aria-labelledby="unlockTitle" novalidate>
+    <div class="unlock-head">
+      <span class="unlock-badge" aria-hidden="true"><svg class="ic"><use href="#i-lock"></use></svg></span>
+      <div class="unlock-text">
+        <h3 id="unlockTitle">Locked lecture</h3>
+        <p class="unlock-sub" id="unlockSub">Enter the password to listen.</p>
+      </div>
+    </div>
+    <input class="unlock-user" id="unlockUser" type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true">
+    <label class="unlock-field">
+      <span class="sr-only">Password</span>
+      <input id="unlockPw" name="password" type="password" autocomplete="current-password" placeholder="Password" enterkeyhint="go" autocapitalize="off" spellcheck="false" aria-describedby="unlockErr">
+    </label>
+    <p class="unlock-err" id="unlockErr" role="alert" hidden></p>
+    <label class="unlock-check">
+      <input id="unlockRemember" type="checkbox" checked>
+      <span>Remember on this device</span>
+    </label>
+    <div class="unlock-actions">
+      <button class="btn-wide" type="button" id="unlockCancel">Cancel</button>
+      <button class="btn-wide btn-accent" type="submit" id="unlockGo"><span class="spin" aria-hidden="true"></span><span class="unlock-go-l">Unlock</span></button>
+    </div>
+  </form>
 </div>
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>

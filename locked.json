@@ -1,0 +1,29 @@
+{
+  "lectures": [
+    {
+      "id": "locked-a610335b",
+      "title": "Locked lecture",
+      "series": "Locked",
+      "audio": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/65c32825f126898ecbb32543ae1f301b4576511d/locked/a610335b.mp3.enc",
+      "bytes": 22283656,
+      "duration": 1392.7,
+      "doc": null,
+      "bg": null,
+      "published": "2026-09-27",
+      "sha256": "1e802a8a67fb8798926f9df89e7ce04ae5c47598e27a4d50766d3de0e2d1f02a",
+      "locked": {
+        "v": 1,
+        "kdf": {
+          "name": "PBKDF2",
+          "hash": "SHA-256",
+          "iterations": 600000,
+          "salt": "0W2/yf1qjt9vZ0RgZKvoAQ=="
+        },
+        "meta": {
+          "iv": "TWkFeARzJZuJWtqM",
+          "ct": "g44icf6b9kMYBwFb/+W+r4MYZA4lx06HFZaf7FaU1nbYXoEGhFkBZsyViAR6QOwm5e0G69mvAhuqZFTAxX/xKlJhlan6/2eYSZ56fzvB0YLG1bhUiv9WezlA7fEsk5GL6c9rNuAEDvTXhb6TOWwIYcAe5kTwiRV8CpBsAn4YCY7Ss5K7xtgyBpQ7bVQ3e336HqAsIOTmIOhH9VY3Dlpt6xinKjk3O2ZbPx8KGSbmTGGDnOxjpay3lm/m6iOG7DtielJEFZoUHDL4RwpL5/Jt1sjpwOKnAiS02cKCvHwUat3Qp4ucXMSPmkJ4utxjgh95uUgx5PXj8lEaIR046r9exBw4PPQ1XdZiDa+4mvZ/T10sXcANpVfwbLQs1ujC6thgoYInfTV5Xip7tqMTop4XjPRrvFtgHys9ZOQ7xIOM2Zus/eZzES0yi7U2corwkIh2aIhU8Mj6u13wlunKpXmvFCsR9ZOIQtn1DzalfgzuXHJOOgAZhTC4gN9xpHm1eeDOLE/h+HCu3UZgJ1dVtHH5ZtbKxiXAHtqUQ2G7EsbPYwHNQkX4kIXHkbRWF1hxKEC5NXpLDcr22O7NoGw7NCZWFv1KnUi4OAwbDBMLX+G3froMVWtjZfA61XacRJhfmjDVMN9E1mt0yIRMa1C9K+mH7SQXzr7dZKuy0FK6xRf+kRlOezeGHqb/rJYlGQjqXb+P7hmxk5KLn9+jpSsxznoShcFOTOsQGBZpe4UWuw+jr1MG+AnT3cZYlPrVxfFEg+Y4ufRkMHr3vVgmmxDpRby0DntlSWhw+EMX16nmrUPyIOGd/PBWN4wZ2CUvwq+DTPhMUS9nnp24Qa9hMFh2NMwA9aWhBhzpiBg7YykOxd0BA92+GBDaB6vcNryeqQI8IddybyVwBOJM32weih7DGwJLVmDKQSjs+FESD+H6SAmvaUCv9oE7KH5u7zf6l0SVT/t8xhiLsCfnX9fwNRaGWrBRqMebu1txYG8rxNm6iqlxHFbSIstoRl1V4SM/+xZ9Yg4tieMGqnjeLfaO7Uf34Rc4bOCnBBs51gcGZt3IlI4lkOwNdvEnwcMROySMlTDykvog8wvmJdRFcBJ9mz682cOWcusB0fRg41cEASvBCBqZyl8cmvFhw4cwdllqRAZ9mkwc0D86u5tIKcb1SdN3OK6oIP3qO53jzEdWTeTas/8H49nlXk4rMAVQo0NkuwFF1cvOThDKo7sI2Cxj7oee/r4tdax0e9tePMuAnMC37LuqUtXWibD1/3yRm0wRPS8pGmBNTeAlwLCLoqD4I+aptcuoDpfa6Ezl46aO+dnvL6KvxMPEvwqF9LaJchbOjsky2DMAHTfSe5OC5U13NlcNC1WnRnzlUzGMdziydXlmZJBkmfmlfwJ26G9VIHNOxKUMaRncsGkeBb3jy8+8KwJVQjAc0aItHsbQ7vxra08KALR6zRxWftlD11RgRbHuaK0eHE8MXpuK4OcoPAXwBjvRW3KpMIBMZRAshkDTdCCp3wp3qT7mP6of10nkR1DQ7WioAS39T0SkVz3imYE0bkBd8w=="
+        }
+      }
+    }
+  ]
+}

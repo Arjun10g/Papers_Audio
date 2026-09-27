@@ -116,6 +116,30 @@ large-v3) and pace. Held-out results:
 | VoxCPM2 zero-shot, 25 s reference | 0.789 | 2.7% | 1.01 |
 | Qwen3-TTS zero-shot, 25 s reference | 0.782 | 2.2% | 1.05 |
 
+### Password-protected lectures
+
+Some lectures should not be readable by anyone else. Everything in this repo,
+the dataset and the app is public, so protection is encryption, not a login
+screen: only ciphertext is ever published, and the app decrypts on the device
+after the password is entered (with an option to remember it on that device).
+
+```bash
+# 1. text + a private catalog entry, both in the git-ignored private/ folder
+private/lectures/<id>.md
+private/catalog.json        # {"lectures": [{"id", "title", "series", "bg", "engine", "voice"}]}
+# 2. narrate as usual (renders into the git-ignored audio/)
+HF_TOKEN=… python tools/generate_lecture.py <id>
+# 3. encrypt + upload the ciphertext, write locked.json (safe to commit)
+LECTURE_PASSWORD=… HF_TOKEN=… python tools/lock_lecture.py <id>
+# 4. publish + push as usual; publish.py appends locked.json to library.json
+```
+
+Crypto: PBKDF2-HMAC-SHA-256 (600,000 iterations, random salt) → AES-256-GCM
+for the audio, the transcript, and the title/series/artwork/chapters. The
+library shows "Locked lecture" with only duration and size in the clear. The
+ciphertext is publicly downloadable, so the protection is only as strong as the
+password: a short one can be guessed offline.
+
 ## The app
 
 Vanilla HTML/CSS/JS in `app/`, no build step. Offline downloads go through the

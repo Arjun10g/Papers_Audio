@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "title": "Papers, as Audio",
-  "generated": "2026-09-26T03:43:09Z",
+  "generated": "2026-09-27T16:49:07Z",
   "repo": "arjun10g/papers-audio",
-  "revision": "38d7cff7aa89108893d85764fb228c3ec3f44578",
-  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/38d7cff7aa89108893d85764fb228c3ec3f44578/",
+  "revision": "04193830e8c5d53818f83fa9a7b3d5d7d7345af3",
+  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/04193830e8c5d53818f83fa9a7b3d5d7d7345af3/",
   "lectures": [
     {
       "id": "splines",
@@ -522,6 +522,139 @@
           "start": 2782.92
         }
       ]
+    },
+    {
+      "id": "llm-memory-hierarchy",
+      "n": 24,
+      "title": "Memory Hierarchy for LLMs",
+      "series": "Quantization & Kernels",
+      "audio": "audio/llm-memory-hierarchy.mp3",
+      "bytes": 24748142,
+      "duration": 1546.73,
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/llm-memory-hierarchy.md",
+      "bg": "https://images.unsplash.com/photo-1591488320449-011701bb6704?w=1920&q=80",
+      "published": "2026-09-26",
+      "sha256": "461c88f9b09e0e1b8e4b2958e586d97ba72df9ecb28b66eef210986595de7e1b",
+      "chapters": [
+        {
+          "title": "Opening: why LLM performance is really about moving data",
+          "start": 7.05
+        },
+        {
+          "title": "Start with the complete memory journey",
+          "start": 55.04
+        },
+        {
+          "title": "VRAM, HBM, DRAM, and SRAM",
+          "start": 122.13
+        },
+        {
+          "title": "The GPU is made of streaming multiprocessors",
+          "start": 195.32
+        },
+        {
+          "title": "Registers - each thread's private working area",
+          "start": 259.59
+        },
+        {
+          "title": "Why we want many warps: latency hiding",
+          "start": 331.25
+        },
+        {
+          "title": "Shared memory - the block's cooperative scratchpad",
+          "start": 397.99
+        },
+        {
+          "title": "Coalescing and bank conflicts",
+          "start": 470.97
+        },
+        {
+          "title": "Tensor Cores - the arithmetic engines",
+          "start": 536.55
+        },
+        {
+          "title": "Tiling: how a GEMM uses the hierarchy",
+          "start": 604.45
+        },
+        {
+          "title": "Pipeline the loads instead of waiting",
+          "start": 672.56
+        },
+        {
+          "title": "Prefill versus decode",
+          "start": 727.64
+        },
+        {
+          "title": "Arithmetic intensity and the roofline idea",
+          "start": 794.83
+        },
+        {
+          "title": "Why quantization can speed up decode",
+          "start": 858.02
+        },
+        {
+          "title": "The KV cache is another bandwidth problem",
+          "start": 929.5
+        },
+        {
+          "title": "FlashAttention: same math, smarter movement",
+          "start": 984.09
+        },
+        {
+          "title": "Kernel fusion follows the same principle",
+          "start": 1049.32
+        },
+        {
+          "title": "Mixture of experts and prefetching",
+          "start": 1108.35
+        },
+        {
+          "title": "L two cache versus shared memory in prefetching",
+          "start": 1182.63
+        },
+        {
+          "title": "One complete decode-token walkthrough",
+          "start": 1244.33
+        },
+        {
+          "title": "Why a giant GPU can still struggle with one sequence",
+          "start": 1327.99
+        },
+        {
+          "title": "A practical framework for analyzing any LLM kernel",
+          "start": 1393.74
+        },
+        {
+          "title": "Final recap",
+          "start": 1446.74
+        }
+      ]
+    },
+    {
+      "id": "locked-a610335b",
+      "title": "Locked lecture",
+      "series": "Locked",
+      "audio": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/65c32825f126898ecbb32543ae1f301b4576511d/locked/a610335b.mp3.enc",
+      "bytes": 22283656,
+      "duration": 1392.7,
+      "doc": null,
+      "bg": null,
+      "published": "2026-09-27",
+      "sha256": "1e802a8a67fb8798926f9df89e7ce04ae5c47598e27a4d50766d3de0e2d1f02a",
+      "locked": {
+        "v": 1,
+        "kdf": {
+          "name": "PBKDF2",
+          "hash": "SHA-256",
+          "iterations": 600000,
+          "salt": "0W2/yf1qjt9vZ0RgZKvoAQ=="
+        },
+        "meta": {
+          "iv": "TWkFeARzJZuJWtqM",
+          "ct": "g44icf6b9kMYBwFb/+W+r4MYZA4lx06HFZaf7FaU1nbYXoEGhFkBZsyViAR6QOwm5e0G69mvAhuqZFTAxX/xKlJhlan6/2eYSZ56fzvB0YLG1bhUiv9WezlA7fEsk5GL6c9rNuAEDvTXhb6TOWwIYcAe5kTwiRV8CpBsAn4YCY7Ss5K7xtgyBpQ7bVQ3e336HqAsIOTmIOhH9VY3Dlpt6xinKjk3O2ZbPx8KGSbmTGGDnOxjpay3lm/m6iOG7DtielJEFZoUHDL4RwpL5/Jt1sjpwOKnAiS02cKCvHwUat3Qp4ucXMSPmkJ4utxjgh95uUgx5PXj8lEaIR046r9exBw4PPQ1XdZiDa+4mvZ/T10sXcANpVfwbLQs1ujC6thgoYInfTV5Xip7tqMTop4XjPRrvFtgHys9ZOQ7xIOM2Zus/eZzES0yi7U2corwkIh2aIhU8Mj6u13wlunKpXmvFCsR9ZOIQtn1DzalfgzuXHJOOgAZhTC4gN9xpHm1eeDOLE/h+HCu3UZgJ1dVtHH5ZtbKxiXAHtqUQ2G7EsbPYwHNQkX4kIXHkbRWF1hxKEC5NXpLDcr22O7NoGw7NCZWFv1KnUi4OAwbDBMLX+G3froMVWtjZfA61XacRJhfmjDVMN9E1mt0yIRMa1C9K+mH7SQXzr7dZKuy0FK6xRf+kRlOezeGHqb/rJYlGQjqXb+P7hmxk5KLn9+jpSsxznoShcFOTOsQGBZpe4UWuw+jr1MG+AnT3cZYlPrVxfFEg+Y4ufRkMHr3vVgmmxDpRby0DntlSWhw+EMX16nmrUPyIOGd/PBWN4wZ2CUvwq+DTPhMUS9nnp24Qa9hMFh2NMwA9aWhBhzpiBg7YykOxd0BA92+GBDaB6vcNryeqQI8IddybyVwBOJM32weih7DGwJLVmDKQSjs+FESD+H6SAmvaUCv9oE7KH5u7zf6l0SVT/t8xhiLsCfnX9fwNRaGWrBRqMebu1txYG8rxNm6iqlxHFbSIstoRl1V4SM/+xZ9Yg4tieMGqnjeLfaO7Uf34Rc4bOCnBBs51gcGZt3IlI4lkOwNdvEnwcMROySMlTDykvog8wvmJdRFcBJ9mz682cOWcusB0fRg41cEASvBCBqZyl8cmvFhw4cwdllqRAZ9mkwc0D86u5tIKcb1SdN3OK6oIP3qO53jzEdWTeTas/8H49nlXk4rMAVQo0NkuwFF1cvOThDKo7sI2Cxj7oee/r4tdax0e9tePMuAnMC37LuqUtXWibD1/3yRm0wRPS8pGmBNTeAlwLCLoqD4I+aptcuoDpfa6Ezl46aO+dnvL6KvxMPEvwqF9LaJchbOjsky2DMAHTfSe5OC5U13NlcNC1WnRnzlUzGMdziydXlmZJBkmfmlfwJ26G9VIHNOxKUMaRncsGkeBb3jy8+8KwJVQjAc0aItHsbQ7vxra08KALR6zRxWftlD11RgRbHuaK0eHE8MXpuK4OcoPAXwBjvRW3KpMIBMZRAshkDTdCCp3wp3qT7mP6of10nkR1DQ7WioAS39T0SkVz3imYE0bkBd8w=="
+        }
+      },
+      "n": 25
     }
   ]
 }
