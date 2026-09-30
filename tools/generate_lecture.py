@@ -373,13 +373,33 @@ class SpaceBackend:
     bills any prepaid credits, so a local ledger stops at ZEROGPU_BUDGET_MIN (default 36) per
     rolling 24 hours, and a quota error from the Space also pauses the render."""
 
+    # A Space that has been idle for two days is asleep: the first request wakes it, and the
+    # client times out while it boots. Network errors are retried with growing waits.
+    RETRY_WAITS = (15, 30, 60, 120, 180)
+
     def __init__(self, cfg: dict, voice: str, cache_dir: Path):
-        from gradio_client import Client
         self.voice, self.cfg = voice, cfg
-        self.client = Client(cfg["space"], token=os.environ.get("HF_TOKEN"), verbose=False)
+        self.client = self._retry(self._connect, "connecting to " + cfg["space"])
         self.ledger = cache_dir.parent / "zerogpu_ledger.json"
         self.budget = float(os.environ.get("ZEROGPU_BUDGET_MIN", "36")) * 60
         self.sr = None
+
+    def _connect(self):
+        from gradio_client import Client
+        return Client(self.cfg["space"], token=os.environ.get("HF_TOKEN"), verbose=False)
+
+    def _retry(self, fn, what: str):
+        for i, wait in enumerate(self.RETRY_WAITS + (None,)):
+            try:
+                return fn()
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                transient = any(k in msg for k in ("Timeout", "timed out", "ConnectError", "RemoteProtocolError",
+                                                   "503", "502", "504", "is sleeping", "building", "starting"))
+                if "quota" in msg.lower() or not transient or wait is None:
+                    raise
+                print(f"    {what}: {msg[:120]} (retry {i + 1} in {wait}s; the Space may be waking up)", flush=True)
+                time.sleep(wait)
 
     def _used(self) -> float:
         try:
@@ -394,7 +414,8 @@ class SpaceBackend:
         if used + est > self.budget:
             raise QuotaPause(f"{used / 60:.1f} of {self.budget / 60:.0f} free GPU-minutes used in the last 24 h")
         try:
-            path = self.client.predict(json.dumps(texts), self.voice, seed, api_name="/synth")
+            path = self._retry(lambda: self.client.predict(json.dumps(texts), self.voice, seed, api_name="/synth"),
+                               f"batch of {len(texts)}")
         except Exception as e:  # gradio_client raises AppError / generic errors for quota and queue issues
             msg = str(e)
             if "quota" in msg.lower() or "GPU task aborted" in msg:

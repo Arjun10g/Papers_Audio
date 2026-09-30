@@ -24,6 +24,31 @@
           "ct": "g44icf6b9kMYBwFb/+W+r4MYZA4lx06HFZaf7FaU1nbYXoEGhFkBZsyViAR6QOwm5e0G69mvAhuqZFTAxX/xKlJhlan6/2eYSZ56fzvB0YLG1bhUiv9WezlA7fEsk5GL6c9rNuAEDvTXhb6TOWwIYcAe5kTwiRV8CpBsAn4YCY7Ss5K7xtgyBpQ7bVQ3e336HqAsIOTmIOhH9VY3Dlpt6xinKjk3O2ZbPx8KGSbmTGGDnOxjpay3lm/m6iOG7DtielJEFZoUHDL4RwpL5/Jt1sjpwOKnAiS02cKCvHwUat3Qp4ucXMSPmkJ4utxjgh95uUgx5PXj8lEaIR046r9exBw4PPQ1XdZiDa+4mvZ/T10sXcANpVfwbLQs1ujC6thgoYInfTV5Xip7tqMTop4XjPRrvFtgHys9ZOQ7xIOM2Zus/eZzES0yi7U2corwkIh2aIhU8Mj6u13wlunKpXmvFCsR9ZOIQtn1DzalfgzuXHJOOgAZhTC4gN9xpHm1eeDOLE/h+HCu3UZgJ1dVtHH5ZtbKxiXAHtqUQ2G7EsbPYwHNQkX4kIXHkbRWF1hxKEC5NXpLDcr22O7NoGw7NCZWFv1KnUi4OAwbDBMLX+G3froMVWtjZfA61XacRJhfmjDVMN9E1mt0yIRMa1C9K+mH7SQXzr7dZKuy0FK6xRf+kRlOezeGHqb/rJYlGQjqXb+P7hmxk5KLn9+jpSsxznoShcFOTOsQGBZpe4UWuw+jr1MG+AnT3cZYlPrVxfFEg+Y4ufRkMHr3vVgmmxDpRby0DntlSWhw+EMX16nmrUPyIOGd/PBWN4wZ2CUvwq+DTPhMUS9nnp24Qa9hMFh2NMwA9aWhBhzpiBg7YykOxd0BA92+GBDaB6vcNryeqQI8IddybyVwBOJM32weih7DGwJLVmDKQSjs+FESD+H6SAmvaUCv9oE7KH5u7zf6l0SVT/t8xhiLsCfnX9fwNRaGWrBRqMebu1txYG8rxNm6iqlxHFbSIstoRl1V4SM/+xZ9Yg4tieMGqnjeLfaO7Uf34Rc4bOCnBBs51gcGZt3IlI4lkOwNdvEnwcMROySMlTDykvog8wvmJdRFcBJ9mz682cOWcusB0fRg41cEASvBCBqZyl8cmvFhw4cwdllqRAZ9mkwc0D86u5tIKcb1SdN3OK6oIP3qO53jzEdWTeTas/8H49nlXk4rMAVQo0NkuwFF1cvOThDKo7sI2Cxj7oee/r4tdax0e9tePMuAnMC37LuqUtXWibD1/3yRm0wRPS8pGmBNTeAlwLCLoqD4I+aptcuoDpfa6Ezl46aO+dnvL6KvxMPEvwqF9LaJchbOjsky2DMAHTfSe5OC5U13NlcNC1WnRnzlUzGMdziydXlmZJBkmfmlfwJ26G9VIHNOxKUMaRncsGkeBb3jy8+8KwJVQjAc0aItHsbQ7vxra08KALR6zRxWftlD11RgRbHuaK0eHE8MXpuK4OcoPAXwBjvRW3KpMIBMZRAshkDTdCCp3wp3qT7mP6of10nkR1DQ7WioAS39T0SkVz3imYE0bkBd8w=="
         }
       }
+    },
+    {
+      "id": "locked-73a37eb8",
+      "title": "Locked lecture",
+      "series": "Locked",
+      "audio": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/453b9094882e90bfb0e510621439d913c027a814/locked/73a37eb8.mp3.enc",
+      "bytes": 25748111,
+      "duration": 1609.22,
+      "doc": null,
+      "bg": null,
+      "published": "2026-09-30",
+      "sha256": "a9eb291f12e6d6d0133e24d6b2f7a0147cbc2a68596b346319be115e1177f1e6",
+      "locked": {
+        "v": 1,
+        "kdf": {
+          "name": "PBKDF2",
+          "hash": "SHA-256",
+          "iterations": 600000,
+          "salt": "8Al5baxnewp6MkhLy1HzGQ=="
+        },
+        "meta": {
+          "iv": "cQAOvjno8yF5g0Sq",
+          "ct": "GJdX9ChiPlx1VnT4Or3aiad/8uFWw4s27q9SjmtfqzhTummwsRaRtwLg78eL2xyMrvv4WwGBwYrZpYSkP1xg2nBjvX1NdElRs8MOLHXK772n84MHrlrp05AGygiG+t3Ng9XujezpUuUAgv+WzuDePUHAp2BsgJTpxdhAkTBJBn6z+Ce8hI3IN3zKBQP5OhZh5d+CkBbvGsTImtJQUyie7xfvRxlg6SCRRAgnEy0PoOz3NrAgUO8d+DvWXiRW5y21bSv3oo/NbDpNjVbp887sZ0i9wYqcrttpJMfOR43iAiz+5x7Scburf96cTjBmaJrHY8+Sb4dvb/pSUIIOaSQCLhEM+9+7KNnvae4sMXgV0kP/XgmNLoNlJwr+W1SY0hwdIShzbj9FPCCltOUiy3NTogqVqp3s9ju9RstgERibGTGZJdG0KuDEAPsP0QCGbxlpuhxYWsQ1BfkbSgJqa3kkZAGtUj6XkC/YOuMIrcM1imbOCzNBRiOwMu7MwEjgbni7GoaJax+3Q9XAMtarSwzdwiIoiLiXNsBqRd9THUXv4G5qaKDht1pZzbyvcYPJbPbFknIG8duVW8M/mZ1ych5CxokC/1WWqw97+f43oDP6K8ef049sn0dPwRZhFAXcRF8KG8A9Dp/U8osnPs4jSCvLhR7r+bG0oDti2hS8NXncwBMrh7/dncC+Y/hR2ECYhja5mIcghrBqdZHeiR6VCqm6S6fls6SUiBWyQvECG3s723qzRGP6lDcUkv97nGaNLQCLgv4NTVg+oPPdgfntnnz2hZcNFC9/CxE+ukQWhpWtxp2N3Z5K+DiFT+dqqudzitRZekQC2Doh+fJizXvU2r6shFc6+RIxxRE0k6qcLJgIW5qpL8ANgvKa0ee192aJ4cQaExMpeocPMZ9xEg7i1dhTHMtw5pUSQQHg4zEmYasEMGCk+qzVhIhcSYveiSAvqd4bjTSWnqwrtQALh5UgNMmQ/OIQepkhr7PU5gzllQo+hjtiw5GH8v4RiMJ6v+DcrFCOL3KmNToN+zTv3LN8a8l4t+nNHJ6LLS/GnyDCc2SiU/7YI0yKtaerWlYPiRIFvfjZ17q3+iU9W7GTbNa6iExy8Qn7+Nkgzak9tvlOAzdKJ8UP1sSh86Cr41SX6Yp/V26k7eE3S2L16bKRRZSPfQtuIhjged5b4ypOY7NE8X8HvOCvqwe8QK9cFQPGXJQbKb2HrLV3X6XgG1UvXB4a5iQGzBgV7zDzciD06dEy652XNz1HQDVT27vHNc+AlheLuTTBg4OBpnIMip/aQRaDXnm/fbEAZS9V6DLZL8oKk9m34OFtiRFZtVDn5fDiO7u+ExIcUcw4WZAuyvEjfoetJ4d49pqVjfKapbLPnwgN0n38aqfYo9CVRrzpRToQIyxS4544WMsdP/665JvV4LkqqrGy8+aF0C/t2gykY98fsYAtiY20tDj71/nPa9/wepyHmjz3IjNPesmXH74u33t+/3Q+ZsqmJ8RtHMyqSXVqFBgDx4wC1vzMpKbjDh/SIV620vC6SMGRjWI8eh7KHF/IN4HVOnd3QqSy40njm2iO9vnEg+j3O+qkLl4afZ+vVUfMBuFCLefHZjNYrMCJaF9w0baD3Jl5I60vWykPp0inAwLzS4tUojLWiyHmoB1g0DQEp94xoWwqufO/tZXkSICqTyHxNMJfDVFsyB00hrnQUaTHDHp9s/HV4MRtlRgrXolL0SnpIlCy2Rz28VXn+8csr8oc/86UJZU5cQNpAwErbyRP/HTAAqbnaM3b+cPKG5QCh7wePRgOwttYCoiD1XBuK4QFR10="
+        }
+      }
     }
   ]
 }

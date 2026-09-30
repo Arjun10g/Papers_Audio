@@ -59,7 +59,11 @@ const DOC_CACHE   = 'docs-v1';
 
 const SKIP_BACK = 15;
 const SKIP_FWD  = 30;
-const RATES     = [0.8, 1, 1.25, 1.5, 1.75, 2];
+const RATE_MIN  = 0.5;
+const RATE_MAX  = 3;
+const RATE_STEP = 0.05;
+const RATE_RAMP = 250;   // ms to glide between speeds
+const PRESETS   = [0.8, 0.9, 1, 1.1, 1.2, 1.25, 1.5, 1.75, 2];
 const SLEEPS    = [
   { v: 'off', label: 'Off' },
   { v: 'end', label: 'End of lecture' },
@@ -102,6 +106,15 @@ function bytesLabel(b) {
   if (b < 1024 * 1024 * 1024) return `${(b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`;
   return `${(b / 1073741824).toFixed(2)} GB`;
 }
+
+/** snap to the 0.05 grid inside [0.5, 3]; anything unreadable is 1× */
+function normRate(v) {
+  v = Number(v);
+  if (!isFinite(v) || v <= 0) return 1;
+  return Number((Math.round(clamp(v, RATE_MIN, RATE_MAX) / RATE_STEP) * RATE_STEP).toFixed(2));
+}
+/** "0.9×" / "1.25×" / "1×" */
+const rateLabel = r => `${Number(r.toFixed(2))}×`;
 
 const NS = 'pa.';
 const store = {
@@ -161,6 +174,9 @@ const el = {
 
   picker: $('#picker'), pickerTitle: $('#pickerTitle'), pickerOpts: $('#pickerOpts'),
   help: $('#help'), helpClose: $('#helpClose'),
+  speed: $('#speed'), speedNow: $('#speedNow'), speedLeft: $('#speedLeft'), speedRange: $('#speedRange'),
+  speedDn: $('#speedDn'), speedUp: $('#speedUp'), speedPresets: $('#speedPresets'),
+  speedReset: $('#speedReset'), speedDone: $('#speedDone'),
   sheetEyebrow: $('#sheetEyebrow'), btnLock: $('#btnLock'),
   unlock: $('#unlock'), unlockForm: $('#unlockForm'), unlockSub: $('#unlockSub'),
   unlockUser: $('#unlockUser'), unlockPw: $('#unlockPw'), unlockErr: $('#unlockErr'),
@@ -182,7 +198,7 @@ const state = {
   bySeries: [],
   source: 'none',        // network | cache | bundled | none
   i: -1,                 // index of the loaded lecture, -1 = nothing loaded
-  rate: parseFloat(store.get('rate', '1')) || 1,
+  rate: loadRate(),
   newIds: new Set(),
   downloaded: new Set(), // full audio URLs present in AUDIO_CACHE
   dl: new Map(),         // id -> { loaded, total, ctrl }
@@ -386,7 +402,7 @@ function toast(msg, opts) {
 
 /* ── layer navigation (Android Back closes the top layer) ───────────────── */
 
-const LAYERS = ['player', 'chapters', 'reader', 'picker', 'help', 'unlock'];
+const LAYERS = ['player', 'chapters', 'reader', 'picker', 'speed', 'help', 'unlock'];
 const nav = {
   stack: [],
   has(n) { return this.stack.indexOf(n) >= 0; },
@@ -426,6 +442,7 @@ function apply() {
   on(el.chapPanel, 'chapters');
   on(el.reader, 'reader');
   on(el.picker, 'picker');
+  on(el.speed, 'speed');
   on(el.help, 'help');
   on(el.unlock, 'unlock');
   document.body.classList.toggle('no-scroll', s.length > 0);
@@ -842,9 +859,9 @@ function loadLecture(i, autoplay, seekTo) {
     audio.removeAttribute('src');
   } else {
     audio.src = audioUrl(l);
-    audio.playbackRate = state.rate;
   }
   try { audio.load(); } catch (e) {}
+  applyRate();                               // a new src / load() can reset the element's rate
   if (oldBlob) URL.revokeObjectURL(oldBlob);
 
   store.set('last', l.id);
@@ -928,8 +945,8 @@ async function prepareLocked(l, autoplay) {
     state.blobFor = l.id;
     if (state.pendingSeek == null) state.pendingSeek = savedPos(l.id);
     audio.src = state.blobUrl;
-    audio.playbackRate = state.rate;
     try { audio.load(); } catch (e) {}
+    applyRate();
     if (old) URL.revokeObjectURL(old);
     if (autoplay) { const p = audio.play(); if (p && p.catch) p.catch(() => {}); }
   } catch (err) {
@@ -1107,7 +1124,7 @@ function paintNowPlaying() {
   el.npSeries.textContent = v.series;
   el.npTitle.textContent = v.title;
   el.sheetNum.textContent = `${l.n} / ${state.lectures.length}`;
-  el.rateVal.textContent = `${state.rate}×`;
+  paintRate();
   el.btnLock.hidden = !isLocked(l) || shut;
   el.sheet.classList.toggle('is-locked', shut);
 
@@ -1216,10 +1233,10 @@ function lockedMediaSession(l) {
 }
 
 let lastPosState = 0;
-function updatePositionState() {
+function updatePositionState(force) {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
   const now = Date.now();
-  if (now - lastPosState < 900) return;
+  if (!force && now - lastPosState < 900) return;
   lastPosState = now;
   const d = durationOf();
   if (!d) return;
@@ -1227,7 +1244,7 @@ function updatePositionState() {
     navigator.mediaSession.setPositionState({
       duration: d,
       position: clamp(audio.currentTime || 0, 0, d),
-      playbackRate: audio.playbackRate || 1,
+      playbackRate: state.rate,
     });
   } catch (e) {}
 }
@@ -1252,7 +1269,7 @@ audio.addEventListener('loadedmetadata', () => {
   state.pendingSeek = null;
   const d = durationOf();
   if (t != null && t > 1 && d && t < d - 8) { try { audio.currentTime = t; } catch (e) {} }
-  audio.playbackRate = state.rate;
+  applyRate();
   renderTicks();
   paintTime();
   updateChapter(true);
@@ -1261,11 +1278,15 @@ audio.addEventListener('timeupdate', () => {
   paintTime();
   updatePositionState();
   updateChapter(false);
+  if (nav.has('speed')) paintSpeedLeft();
 });
 audio.addEventListener('durationchange', () => { renderTicks(); paintTime(); });
-audio.addEventListener('play', paintPlayState);
+audio.addEventListener('play', () => {
+  if (!rampRaf) applyRate();
+  paintPlayState();
+  updatePositionState(true);
+});
 audio.addEventListener('pause', () => { paintPlayState(); savePosition(); });
-audio.addEventListener('ratechange', () => { el.rateVal.textContent = `${audio.playbackRate}×`; });
 audio.addEventListener('ended', () => {
   const l = current();
   if (l) { store.del(posKey(l.id)); store.set(doneKey(l.id), '1'); }
@@ -1337,6 +1358,141 @@ function openSleepPicker() {
       <span>${esc(o.label)}</span>${on ? '<svg class="ic"><use href="#i-check"></use></svg>' : ''}</button>`;
   }).join('');
   nav.open('picker');
+}
+
+/* ── playback speed ─────────────────────────────────────────────────────── */
+
+/** the saved speed, snapped + clamped; rewrites an older free-form value in place */
+function loadRate() {
+  const raw = store.get('rate', null);
+  if (raw === null) return 1;
+  const r = normRate(parseFloat(raw));
+  if (String(r) !== raw) store.set('rate', r);
+  return r;
+}
+
+/** keep speech at its natural pitch when sped up or slowed down */
+function keepPitch() {
+  try {
+    audio.preservesPitch = true;
+    if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
+    if ('mozPreservesPitch' in audio) audio.mozPreservesPitch = true;
+  } catch (e) {}
+}
+
+let rampRaf = 0;
+function cancelRamp() {
+  if (rampRaf) { cancelAnimationFrame(rampRaf); rampRaf = 0; }
+}
+
+/** put state.rate on the element outright (after a src change, on load, on play) */
+function applyRate() {
+  cancelRamp();
+  keepPitch();
+  try {
+    audio.defaultPlaybackRate = state.rate;
+    audio.playbackRate = state.rate;
+  } catch (e) {}
+}
+
+/** glide the element to state.rate over ~250 ms rather than jumping */
+function rampRate() {
+  cancelRamp();
+  keepPitch();
+  const to = state.rate;
+  const from = audio.playbackRate || to;
+  // nothing to hear (or no frames to animate with): just set it
+  if (audio.paused || document.hidden || Math.abs(from - to) < 0.001) { applyRate(); return; }
+  try { audio.defaultPlaybackRate = to; } catch (e) {}
+  const t0 = performance.now();
+  const frame = now => {
+    const k = Math.min(1, (now - t0) / RATE_RAMP);
+    if (k >= 1) { rampRaf = 0; applyRate(); return; }
+    const ease = 1 - Math.pow(1 - k, 3);
+    try { audio.playbackRate = from + (to - from) * ease; } catch (e) {}
+    rampRaf = requestAnimationFrame(frame);
+  };
+  rampRaf = requestAnimationFrame(frame);
+}
+
+/** the one way the speed changes: snap, remember, show, then glide (or set) the element */
+function setRate(v, opts) {
+  opts = opts || {};
+  state.rate = normRate(v);
+  store.set('rate', state.rate);
+  if (opts.ramp) rampRate(); else applyRate();
+  paintRate(opts.fromSlider);
+  updatePositionState(true);
+}
+const stepRate = dir => setRate(state.rate + dir * RATE_STEP, { ramp: true });
+function stepPreset(dir) {
+  const r = state.rate;
+  const next = dir > 0 ? PRESETS.find(p => p > r + 0.001)
+                       : PRESETS.slice().reverse().find(p => p < r - 0.001);
+  if (next != null) setRate(next, { ramp: true });
+}
+
+const presetLabel = p => (p % 1 ? String(p) : p.toFixed(1)) + '×';
+function renderPresets() {
+  el.speedPresets.innerHTML = PRESETS.map(p =>
+    `<button class="speed-chip" type="button" data-rate="${p}" aria-pressed="false">${presetLabel(p)}</button>`).join('');
+}
+
+function paintSpeedLeft() {
+  const l = current(), d = durationOf();
+  if (!l || !d) { el.speedLeft.textContent = 'Pick a lecture to see its time left'; return; }
+  const at = state.pendingSeek != null ? state.pendingSeek : (audio.currentTime || 0);
+  const left = Math.max(0, d - clamp(at, 0, d));
+  el.speedLeft.textContent = state.rate === 1
+    ? `${hms(left)} left`
+    : `${hms(left / state.rate)} left at this speed · ${hms(left)} at 1×`;
+}
+
+function paintRate(fromSlider) {
+  const r = state.rate;
+  el.rateVal.textContent = rateLabel(r);
+  el.btnRate.setAttribute('aria-label', `Playback speed, ${rateLabel(r)}`);
+  el.speedNow.textContent = r.toFixed(2) + '×';
+  if (!fromSlider) el.speedRange.value = String(r);
+  el.speedRange.style.setProperty('--p', (((r - RATE_MIN) / (RATE_MAX - RATE_MIN)) * 100).toFixed(2));
+  el.speedRange.setAttribute('aria-valuetext', `${r.toFixed(2)} times`);
+  el.speedDn.disabled = r <= RATE_MIN;
+  el.speedUp.disabled = r >= RATE_MAX;
+  el.speedReset.disabled = r === 1;
+  el.speedPresets.querySelectorAll('.speed-chip').forEach(b => {
+    const on = Math.abs(Number(b.getAttribute('data-rate')) - r) < 0.001;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  paintSpeedLeft();
+}
+
+function openSpeed() {
+  paintRate();
+  nav.open('speed');
+}
+
+/** tap to step once; hold to keep stepping */
+function holdToStep(btn, dir) {
+  let timer = 0;
+  const stop = () => { clearTimeout(timer); timer = 0; };
+  const tick = wait => {
+    stepRate(dir);
+    const r = state.rate;
+    if ((dir < 0 && r <= RATE_MIN) || (dir > 0 && r >= RATE_MAX)) { stop(); return; }
+    timer = setTimeout(() => tick(90), wait);
+  };
+  btn.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    stop();
+    tick(420);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => btn.addEventListener(ev, stop));
+  window.addEventListener('pointerup', stop);
+  window.addEventListener('blur', stop);
+  btn.addEventListener('click', e => { if (e.detail === 0) stepRate(dir); });   // keyboard activation
+  btn.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 /* ── transcript reader ──────────────────────────────────────────────────── */
@@ -1654,13 +1810,7 @@ el.btnFwd.addEventListener('click', () => skip(SKIP_FWD));
 el.btnPrev.addEventListener('click', () => loadLecture(state.i - 1, true));
 el.btnNext.addEventListener('click', () => loadLecture(state.i + 1, true));
 
-el.btnRate.addEventListener('click', () => {
-  const i = RATES.indexOf(state.rate);
-  state.rate = RATES[(i + 1) % RATES.length];
-  audio.playbackRate = state.rate;
-  el.rateVal.textContent = `${state.rate}×`;
-  store.set('rate', state.rate);
-});
+el.btnRate.addEventListener('click', openSpeed);
 el.btnSleep.addEventListener('click', openSleepPicker);
 el.btnRead.addEventListener('click', openReader);
 el.btnDownload.addEventListener('click', () => {
@@ -1737,6 +1887,29 @@ el.scrub.addEventListener('change', endScrub);
   window.addEventListener('pointercancel', up);
 })();
 
+/* speed sheet — the slider previews live, at most once per frame */
+let speedPending = null;
+el.speedRange.addEventListener('input', () => {
+  const first = speedPending === null;
+  speedPending = el.speedRange.value;
+  if (!first) return;
+  requestAnimationFrame(() => {
+    const v = speedPending;
+    speedPending = null;
+    if (v !== null) setRate(v, { fromSlider: true });
+  });
+});
+el.speedRange.addEventListener('change', () => { speedPending = null; setRate(el.speedRange.value, { fromSlider: true }); });
+holdToStep(el.speedDn, -1);
+holdToStep(el.speedUp, 1);
+el.speedPresets.addEventListener('click', e => {
+  const b = e.target.closest ? e.target.closest('.speed-chip') : null;
+  if (b) setRate(b.getAttribute('data-rate'), { ramp: true });
+});
+el.speedReset.addEventListener('click', () => setRate(1, { ramp: true }));
+el.speedDone.addEventListener('click', () => nav.close('speed'));
+el.speed.addEventListener('click', e => { if (e.target === el.speed) nav.close('speed'); });
+
 /* picker / help / reader chrome */
 el.pickerOpts.addEventListener('click', e => {
   const b = e.target.closest ? e.target.closest('.opt') : null;
@@ -1777,23 +1950,21 @@ document.addEventListener('keydown', e => {
     else if (typing) document.activeElement.blur();
     return;
   }
-  if (typing) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // speed keys also work while a slider has focus (a slider ignores them)
+  if (/^[[\]{}]$/.test(e.key)) {
+    if (typing && document.activeElement.type !== 'range') return;
+    e.preventDefault();
+    const dir = (e.key === ']' || e.key === '}') ? 1 : -1;
+    if (e.shiftKey || e.key === '{' || e.key === '}') stepPreset(dir); else stepRate(dir);
+    return;
+  }
+  if (typing) return;
 
   switch (e.key) {
     case ' ': case 'k': e.preventDefault(); togglePlay(); break;
     case 'ArrowRight': e.preventDefault(); e.shiftKey ? loadLecture(state.i + 1, true) : skip(SKIP_FWD); break;
     case 'ArrowLeft':  e.preventDefault(); e.shiftKey ? loadLecture(state.i - 1, true) : skip(-SKIP_BACK); break;
-    case ']': e.preventDefault(); el.btnRate.click(); break;
-    case '[': {
-      e.preventDefault();
-      const i = RATES.indexOf(state.rate);
-      state.rate = RATES[(i - 1 + RATES.length) % RATES.length];
-      audio.playbackRate = state.rate;
-      el.rateVal.textContent = `${state.rate}×`;
-      store.set('rate', state.rate);
-      break;
-    }
     case 'r': case 'R': nav.has('reader') ? nav.close('reader') : openReader(); break;
     case 't': case 'T': toggleTheme(); break;
     case 'n': case 'N': loadLecture(state.i + 1, true); break;
@@ -1838,8 +2009,9 @@ async function boot() {
   measureTopbar();
   paintTheme();
   setReaderFont(readerFont);
-  el.rateVal.textContent = `${state.rate}×`;
-  audio.playbackRate = state.rate;
+  renderPresets();
+  paintRate();
+  applyRate();
   el.list.innerHTML = skeletons(7);
   if (isStandalone()) el.btnInstall.hidden = true;
 
