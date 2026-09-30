@@ -87,9 +87,11 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    const keep = new Set([SHELL_CACHE, AUDIO_CACHE, DOC_CACHE, ART_CACHE]);
+    // arjun10g.github.io is shared with other apps (Acoustify keeps its token
+    // and offline audio in `acoustify-*` caches), so only retire our own
+    // superseded shell caches — never anything we did not create.
     const names = await caches.keys();
-    await Promise.all(names.map(n => (keep.has(n) ? null : caches.delete(n))));
+    await Promise.all(names.map(n => (n.startsWith('shell-') && n !== SHELL_CACHE ? caches.delete(n) : null)));
     if (self.registration.navigationPreload) {
       try { await self.registration.navigationPreload.disable(); } catch (e) {}
     }
