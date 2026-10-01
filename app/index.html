@@ -206,6 +206,21 @@ try{var t=localStorage.getItem("pa.theme");if(t==="light"||t==="dark")document.d
     </div>
   </header>
   <article class="reader-body" id="readerBody"></article>
+  <div class="reader-player" aria-label="Transcript playback controls">
+    <div class="reader-player-inner">
+      <div class="reader-timeline">
+        <span id="readerTime">0:00</span>
+        <input class="scrub reader-seek" id="readerSeek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek position">
+        <span id="readerTotal">0:00</span>
+      </div>
+      <div class="reader-actions">
+        <button class="reader-control" id="readerBack" aria-label="Back 15 seconds"><svg class="ic"><use href="#i-back15"></use></svg></button>
+        <button class="reader-control reader-play" id="readerPlay" aria-label="Play"><svg class="ic"><use href="#i-play"></use></svg></button>
+        <button class="reader-control" id="readerFwd" aria-label="Forward 30 seconds"><svg class="ic"><use href="#i-fwd30"></use></svg></button>
+        <button class="reader-control reader-rate" id="readerRate" aria-label="Playback speed">1×</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ───────── option picker (sleep timer) ───────── -->

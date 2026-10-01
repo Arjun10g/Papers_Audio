@@ -171,6 +171,9 @@ const el = {
 
   reader: $('#reader'), readerTitle: $('#readerTitle'), readerBody: $('#readerBody'),
   readerClose: $('#readerClose'), fontUp: $('#fontUp'), fontDn: $('#fontDn'),
+  readerTime: $('#readerTime'), readerTotal: $('#readerTotal'), readerSeek: $('#readerSeek'),
+  readerBack: $('#readerBack'), readerPlay: $('#readerPlay'),
+  readerFwd: $('#readerFwd'), readerRate: $('#readerRate'),
 
   picker: $('#picker'), pickerTitle: $('#pickerTitle'), pickerOpts: $('#pickerOpts'),
   help: $('#help'), helpClose: $('#helpClose'),
@@ -206,6 +209,7 @@ const state = {
   sleep: { mode: 'off', deadline: 0 },
   chapI: -1,
   scrubbing: false,
+  readerScrubbing: false,
   pendingSeek: null,
   swReg: null,
   updateAccepted: false,
@@ -866,6 +870,11 @@ function loadLecture(i, autoplay, seekTo) {
 
   store.set('last', l.id);
   paintNowPlaying();
+  if (nav.has('reader')) {
+    state.readerScrubbing = false;
+    if (info(l).doc) openReader();
+    else { el.readerBody.textContent = ''; nav.close('reader'); }
+  }
   renderList();
   renderContinue();
 
@@ -891,9 +900,14 @@ function paintPrep(msg) {
   const busy = !!msg;
   el.btnPlay.classList.toggle('is-busy', busy);
   el.miniPlay.classList.toggle('is-busy', busy);
+  el.readerPlay.classList.toggle('is-busy', busy);
   el.btnPlay.title = el.miniPlay.title = msg || '';
+  el.readerPlay.title = msg || '';
   el.sheetEyebrow.textContent = msg || 'Now playing';
-  if (busy) el.btnPlay.setAttribute('aria-label', msg);
+  if (busy) {
+    el.btnPlay.setAttribute('aria-label', msg);
+    el.readerPlay.setAttribute('aria-label', msg);
+  }
   else paintPlayState();
   const l = current();
   if (l) el.miniSub.textContent = msg || info(l).series;
@@ -973,7 +987,7 @@ function lockLecture(l) {
     audio.removeAttribute('src');
     try { audio.load(); } catch (e) {}
     if (old) URL.revokeObjectURL(old);
-    if (nav.has('reader')) nav.close('reader');
+    if (nav.has('reader')) { el.readerBody.textContent = ''; nav.close('reader'); }
     if (nav.has('chapters')) nav.close('chapters');
   }
   vault.delete(l.id);
@@ -1161,13 +1175,23 @@ function paintTime() {
     el.scrub.style.setProperty('--p', p.toFixed(2));
   }
   el.miniFill.style.width = p.toFixed(2) + '%';
+  el.readerTotal.textContent = d ? hms(d) : '0:00';
+  el.readerSeek.disabled = !d;
+  if (!state.readerScrubbing) {
+    el.readerTime.textContent = hms(t);
+    el.readerSeek.value = String(Math.round(p * 10));
+    el.readerSeek.style.setProperty('--p', p.toFixed(2));
+    el.readerSeek.setAttribute('aria-valuetext', `${hms(t)} of ${hms(d)}`);
+  }
 }
 
 function paintPlayState() {
   const playing = !audio.paused && !audio.ended;
   setIcon(el.btnPlay, playing ? 'i-pause' : 'i-play');
   setIcon(el.miniPlay, playing ? 'i-pause' : 'i-play');
+  setIcon(el.readerPlay, playing ? 'i-pause' : 'i-play');
   if (!state.preparing) el.btnPlay.setAttribute('aria-label', playing ? 'Pause' : (sealed(current()) ? 'Unlock' : 'Play'));
+  if (!state.preparing) el.readerPlay.setAttribute('aria-label', playing ? 'Pause' : (sealed(current()) ? 'Unlock' : 'Play'));
   if ('mediaSession' in navigator) {
     try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch (e) {}
   }
@@ -1451,6 +1475,8 @@ function paintSpeedLeft() {
 function paintRate(fromSlider) {
   const r = state.rate;
   el.rateVal.textContent = rateLabel(r);
+  el.readerRate.textContent = rateLabel(r);
+  el.readerRate.setAttribute('aria-label', `Playback speed, ${rateLabel(r)}`);
   el.btnRate.setAttribute('aria-label', `Playback speed, ${rateLabel(r)}`);
   el.speedNow.textContent = r.toFixed(2) + '×';
   if (!fromSlider) el.speedRange.value = String(r);
@@ -1583,20 +1609,30 @@ async function lockedDocText(l) {
   return text;
 }
 
+let readerRequest = 0;
 async function openReader() {
   const l = current();
   const v = l && info(l);
   if (!l || !v.doc) return;
+  const request = ++readerRequest;
+  const active = () => request === readerRequest && nav.has('reader')
+    && current() && current().id === l.id && !sealed(l);
   nav.open('reader');
+  state.readerScrubbing = false;
   el.readerTitle.textContent = v.title;
   el.readerBody.innerHTML = '<p class="reader-note">Loading transcript…</p>';
+  paintTime();
+  paintPlayState();
   try {
     const text = isLocked(l) ? await lockedDocText(l) : await fetchDoc(fullUrl(l.doc));
-    if (isLocked(l) && sealed(l)) return;       // locked again while it loaded
-    el.readerBody.innerHTML = await renderMarkdown(text);
+    if (!active()) return;
+    const html = await renderMarkdown(text);
+    if (!active()) return;
+    el.readerBody.innerHTML = html;
     el.readerBody.scrollTop = 0;
     if (/\\\(|\\\[|\$\$/.test(text)) await typeset(el.readerBody);
   } catch (err) {
+    if (!active()) return;
     el.readerBody.innerHTML = `<p class="reader-note">The transcript could not be loaded${
       navigator.onLine ? '' : ' — you are offline'}.<br>Open it once while online and it is kept for later.</p>`;
   }
@@ -1936,6 +1972,30 @@ el.unlock.addEventListener('click', e => { if (e.target === el.unlock) nav.close
 el.btnLock.addEventListener('click', () => { const l = current(); if (l) lockLecture(l); });
 
 el.readerClose.addEventListener('click', () => nav.close('reader'));
+el.readerPlay.addEventListener('click', togglePlay);
+el.readerBack.addEventListener('click', () => skip(-SKIP_BACK));
+el.readerFwd.addEventListener('click', () => skip(SKIP_FWD));
+el.readerRate.addEventListener('click', openSpeed);
+el.readerSeek.addEventListener('input', () => {
+  const d = durationOf();
+  if (!d) return;
+  state.readerScrubbing = true;
+  const t = (Number(el.readerSeek.value) / 1000) * d;
+  el.readerTime.textContent = hms(t);
+  el.readerSeek.style.setProperty('--p', (Number(el.readerSeek.value) / 10).toFixed(2));
+  el.readerSeek.setAttribute('aria-valuetext', `${hms(t)} of ${hms(d)}`);
+});
+el.readerSeek.addEventListener('change', () => {
+  const d = durationOf();
+  const t = d ? (Number(el.readerSeek.value) / 1000) * d : 0;
+  state.readerScrubbing = false;
+  seekTo(t);
+  updateChapter(true);
+});
+el.readerSeek.addEventListener('pointercancel', () => {
+  state.readerScrubbing = false;
+  paintTime();
+});
 let readerFont = parseFloat(store.get('readerFont', '17')) || 17;
 el.fontUp.addEventListener('click', () => { readerFont = setReaderFont(readerFont + 1); });
 el.fontDn.addEventListener('click', () => { readerFont = setReaderFont(readerFont - 1); });
@@ -1960,6 +2020,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (typing) return;
+  if (e.key === ' ' && /^(BUTTON|A)$/.test(tag)) return; // native button click handles Space
 
   switch (e.key) {
     case ' ': case 'k': e.preventDefault(); togglePlay(); break;
