@@ -1,0 +1,127 @@
+# Render and publish encrypted private lecture sources without committing plaintext.
+name: Publish locked lecture
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 10 * * *" # retry a render paused by the daily free GPU allowance
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.pending.outputs.go }}
+      ready: ${{ steps.narrate.outputs.paused == 'false' }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      LECTURE_PASSWORD: ${{ secrets.LECTURE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for encrypted source
+        id: pending
+        run: |
+          if compgen -G 'pending_locked/*.enc' > /dev/null; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.pending.outputs.go == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements.txt
+
+      - name: Install narrator and encryption dependencies
+        if: steps.pending.outputs.go == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install -r tools/requirements.txt cryptography gradio_client numpy
+
+      - name: Restore narrator cache
+        if: steps.pending.outputs.go == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .tts_cache
+          key: tts-cache-locked-${{ github.run_id }}
+          restore-keys: tts-cache-
+
+      - name: Restore private source in the runner
+        if: steps.pending.outputs.go == 'true'
+        run: python tools/locked_source.py decrypt-all
+
+      - name: Narrate in the Teller voice
+        if: steps.pending.outputs.go == 'true'
+        id: narrate
+        run: |
+          while read -r id; do
+            set +e
+            python tools/generate_lecture.py "$id" > render.log 2>&1
+            rc=$?
+            set -e
+            if [ "$rc" -eq 75 ]; then
+              echo "paused=true" >> "$GITHUB_OUTPUT"
+              echo "Narration paused by the daily GPU allowance; the scheduled run will resume it."
+              exit 0
+            fi
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Private lecture narration failed (exit $rc)."
+              exit "$rc"
+            fi
+          done < private/ids.txt
+          echo "paused=false" >> "$GITHUB_OUTPUT"
+
+      - name: Encrypt and upload audio and transcript
+        if: steps.pending.outputs.go == 'true' && steps.narrate.outputs.paused == 'false'
+        run: |
+          while read -r id; do
+            python tools/lock_lecture.py "$id"
+          done < private/ids.txt
+
+      - name: Commit encrypted library metadata
+        if: steps.pending.outputs.go == 'true' && steps.narrate.outputs.paused == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add locked.json
+          git rm pending_locked/*.enc
+          git commit -m "Publish encrypted lecture metadata"
+          git push origin HEAD:main
+
+      - name: Publish library to Hugging Face
+        if: steps.pending.outputs.go == 'true' && steps.narrate.outputs.paused == 'false'
+        run: python tools/publish.py
+
+      - name: Stamp app version
+        if: steps.pending.outputs.go == 'true' && steps.narrate.outputs.paused == 'false'
+        run: python tools/stamp_version.py "$(git rev-parse --short HEAD)"
+
+      - if: steps.pending.outputs.go == 'true' && steps.narrate.outputs.paused == 'false'
+        uses: actions/configure-pages@v5
+      - if: steps.pending.outputs.go == 'true' && steps.narrate.outputs.paused == 'false'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app
+
+  deploy:
+    needs: publish
+    if: needs.publish.outputs.go == 'true' && needs.publish.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

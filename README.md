@@ -140,6 +140,16 @@ library shows "Locked lecture" with only duration and size in the clear. The
 ciphertext is publicly downloadable, so the protection is only as strong as the
 password: a short one can be guessed offline.
 
+For a locked lecture that must be rendered in GitHub Actions, use
+`python tools/locked_source.py encrypt <id> --github-secret`. This commits
+only an encrypted source envelope under `pending_locked/`; run the
+`Publish locked lecture` workflow after pushing it. The workflow decrypts in
+the runner, renders with the private Teller profile, uploads encrypted audio
+and transcript to Hugging Face, commits `locked.json`, removes the pending
+envelope, and deploys the updated library. A daily run retries a render paused
+by the free GPU allowance. The `LECTURE_PASSWORD` Actions secret can be
+removed after the workflow succeeds.
+
 ## The app
 
 Vanilla HTML/CSS/JS in `app/`, no build step. Offline downloads go through the
