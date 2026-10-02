@@ -176,6 +176,15 @@
       "published": "2026-09-26",
       "engine": "clone",
       "voice": "teller"
+    },
+    {
+      "id": "training-free-compression",
+      "title": "Compression Without Retraining",
+      "series": "Quantization & Kernels",
+      "bg": "https://images.unsplash.com/photo-1555617981-dac3880eac6e?w=1920&q=80",
+      "published": "2026-10-02",
+      "engine": "clone",
+      "voice": "teller"
     }
   ]
 }
