@@ -17,6 +17,10 @@ on:
     - cron: "17 9 * * *"        # daily: resume cloned-voice renders paused by the GPU allowance
     - cron: "17 1 * * *"        # second try: a render paused around midnight UTC frees up by ~01:00
   workflow_dispatch:
+    inputs:
+      gpu_budget_min:
+        description: "GPU-minute cap per rolling 24 h for this run (ZeroGPU still refuses past the real free quota)"
+        default: "36"
 
 concurrency:
   group: publish
@@ -34,6 +38,7 @@ jobs:
       go: ${{ steps.missing.outputs.go }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      ZEROGPU_BUDGET_MIN: ${{ inputs.gpu_budget_min || '36' }}
       SPEECHIFY_API_KEY: ${{ secrets.SPEECHIFY_API_KEY }}   # only for catalog entries with engine: speechify
     steps:
       - uses: actions/checkout@v4
