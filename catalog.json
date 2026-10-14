@@ -185,6 +185,15 @@
       "published": "2026-10-02",
       "engine": "clone",
       "voice": "teller"
+    },
+    {
+      "id": "checkpoint-to-silicon",
+      "title": "From Checkpoint to Silicon",
+      "series": "Inference & Serving",
+      "bg": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1920&q=80",
+      "published": "2026-10-13",
+      "engine": "clone",
+      "voice": "teller"
     }
   ]
 }
