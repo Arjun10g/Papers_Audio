@@ -15,6 +15,7 @@ on:
     branches: [main]
   schedule:
     - cron: "17 9 * * *"        # daily: resume cloned-voice renders paused by the GPU allowance
+    - cron: "17 1 * * *"        # second try: a render paused around midnight UTC frees up by ~01:00
   workflow_dispatch:
 
 concurrency:
