@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "title": "Papers, as Audio",
-  "generated": "2026-09-30T15:48:17Z",
+  "generated": "2026-10-14T00:06:14Z",
   "repo": "arjun10g/papers-audio",
-  "revision": "04193830e8c5d53818f83fa9a7b3d5d7d7345af3",
-  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/04193830e8c5d53818f83fa9a7b3d5d7d7345af3/",
+  "revision": "2616369b87278b7a8db568ecd56832e82d38e022",
+  "base": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/2616369b87278b7a8db568ecd56832e82d38e022/",
   "lectures": [
     {
       "id": "splines",
@@ -631,6 +631,97 @@
       ]
     },
     {
+      "id": "training-free-compression",
+      "n": 25,
+      "title": "Compression Without Retraining",
+      "series": "Quantization & Kernels",
+      "audio": "audio/training-free-compression.mp3",
+      "bytes": 34043634,
+      "duration": 2127.7,
+      "doc": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/main/lectures/training-free-compression.md",
+      "bg": "https://images.unsplash.com/photo-1555617981-dac3880eac6e?w=1920&q=80",
+      "published": "2026-10-02",
+      "sha256": "cbe7eeff855fbf6d4342a6c19a9c0b9533393dc2d85a6e8b22e5798bd5d006dd",
+      "chapters": [
+        {
+          "title": "Introduction",
+          "start": 0
+        },
+        {
+          "title": "Why training-free",
+          "start": 25.86
+        },
+        {
+          "title": "What training-free actually means",
+          "start": 95.71
+        },
+        {
+          "title": "The objective almost every method shares",
+          "start": 162.16
+        },
+        {
+          "title": "Weight-only quantization: four bits is solved",
+          "start": 255.08
+        },
+        {
+          "title": "Three bits and two bits: where the frontier is",
+          "start": 332.54
+        },
+        {
+          "title": "Quantizing activations too",
+          "start": 432.41
+        },
+        {
+          "title": "The hardware formats",
+          "start": 572.62
+        },
+        {
+          "title": "Compressing the attention cache",
+          "start": 647.21
+        },
+        {
+          "title": "Pruning individual weights",
+          "start": 697.46
+        },
+        {
+          "title": "Narrower and smaller matrices",
+          "start": 784.57
+        },
+        {
+          "title": "Removing layers and experts",
+          "start": 925.06
+        },
+        {
+          "title": "The verdict at equal memory",
+          "start": 996.5
+        },
+        {
+          "title": "A uniform head-to-head study",
+          "start": 1044.9
+        },
+        {
+          "title": "Where it actually gets faster",
+          "start": 1484.68
+        },
+        {
+          "title": "Improving it statistically",
+          "start": 1539.51
+        },
+        {
+          "title": "Improving it for efficiency",
+          "start": 1895.43
+        },
+        {
+          "title": "What to remember",
+          "start": 1928.61
+        },
+        {
+          "title": "Self-check questions",
+          "start": 1984.24
+        }
+      ]
+    },
+    {
       "id": "locked-a610335b",
       "title": "Locked lecture",
       "series": "Locked",
@@ -654,7 +745,7 @@
           "ct": "g44icf6b9kMYBwFb/+W+r4MYZA4lx06HFZaf7FaU1nbYXoEGhFkBZsyViAR6QOwm5e0G69mvAhuqZFTAxX/xKlJhlan6/2eYSZ56fzvB0YLG1bhUiv9WezlA7fEsk5GL6c9rNuAEDvTXhb6TOWwIYcAe5kTwiRV8CpBsAn4YCY7Ss5K7xtgyBpQ7bVQ3e336HqAsIOTmIOhH9VY3Dlpt6xinKjk3O2ZbPx8KGSbmTGGDnOxjpay3lm/m6iOG7DtielJEFZoUHDL4RwpL5/Jt1sjpwOKnAiS02cKCvHwUat3Qp4ucXMSPmkJ4utxjgh95uUgx5PXj8lEaIR046r9exBw4PPQ1XdZiDa+4mvZ/T10sXcANpVfwbLQs1ujC6thgoYInfTV5Xip7tqMTop4XjPRrvFtgHys9ZOQ7xIOM2Zus/eZzES0yi7U2corwkIh2aIhU8Mj6u13wlunKpXmvFCsR9ZOIQtn1DzalfgzuXHJOOgAZhTC4gN9xpHm1eeDOLE/h+HCu3UZgJ1dVtHH5ZtbKxiXAHtqUQ2G7EsbPYwHNQkX4kIXHkbRWF1hxKEC5NXpLDcr22O7NoGw7NCZWFv1KnUi4OAwbDBMLX+G3froMVWtjZfA61XacRJhfmjDVMN9E1mt0yIRMa1C9K+mH7SQXzr7dZKuy0FK6xRf+kRlOezeGHqb/rJYlGQjqXb+P7hmxk5KLn9+jpSsxznoShcFOTOsQGBZpe4UWuw+jr1MG+AnT3cZYlPrVxfFEg+Y4ufRkMHr3vVgmmxDpRby0DntlSWhw+EMX16nmrUPyIOGd/PBWN4wZ2CUvwq+DTPhMUS9nnp24Qa9hMFh2NMwA9aWhBhzpiBg7YykOxd0BA92+GBDaB6vcNryeqQI8IddybyVwBOJM32weih7DGwJLVmDKQSjs+FESD+H6SAmvaUCv9oE7KH5u7zf6l0SVT/t8xhiLsCfnX9fwNRaGWrBRqMebu1txYG8rxNm6iqlxHFbSIstoRl1V4SM/+xZ9Yg4tieMGqnjeLfaO7Uf34Rc4bOCnBBs51gcGZt3IlI4lkOwNdvEnwcMROySMlTDykvog8wvmJdRFcBJ9mz682cOWcusB0fRg41cEASvBCBqZyl8cmvFhw4cwdllqRAZ9mkwc0D86u5tIKcb1SdN3OK6oIP3qO53jzEdWTeTas/8H49nlXk4rMAVQo0NkuwFF1cvOThDKo7sI2Cxj7oee/r4tdax0e9tePMuAnMC37LuqUtXWibD1/3yRm0wRPS8pGmBNTeAlwLCLoqD4I+aptcuoDpfa6Ezl46aO+dnvL6KvxMPEvwqF9LaJchbOjsky2DMAHTfSe5OC5U13NlcNC1WnRnzlUzGMdziydXlmZJBkmfmlfwJ26G9VIHNOxKUMaRncsGkeBb3jy8+8KwJVQjAc0aItHsbQ7vxra08KALR6zRxWftlD11RgRbHuaK0eHE8MXpuK4OcoPAXwBjvRW3KpMIBMZRAshkDTdCCp3wp3qT7mP6of10nkR1DQ7WioAS39T0SkVz3imYE0bkBd8w=="
         }
       },
-      "n": 25
+      "n": 26
     },
     {
       "id": "locked-73a37eb8",
@@ -680,7 +771,33 @@
           "ct": "GJdX9ChiPlx1VnT4Or3aiad/8uFWw4s27q9SjmtfqzhTummwsRaRtwLg78eL2xyMrvv4WwGBwYrZpYSkP1xg2nBjvX1NdElRs8MOLHXK772n84MHrlrp05AGygiG+t3Ng9XujezpUuUAgv+WzuDePUHAp2BsgJTpxdhAkTBJBn6z+Ce8hI3IN3zKBQP5OhZh5d+CkBbvGsTImtJQUyie7xfvRxlg6SCRRAgnEy0PoOz3NrAgUO8d+DvWXiRW5y21bSv3oo/NbDpNjVbp887sZ0i9wYqcrttpJMfOR43iAiz+5x7Scburf96cTjBmaJrHY8+Sb4dvb/pSUIIOaSQCLhEM+9+7KNnvae4sMXgV0kP/XgmNLoNlJwr+W1SY0hwdIShzbj9FPCCltOUiy3NTogqVqp3s9ju9RstgERibGTGZJdG0KuDEAPsP0QCGbxlpuhxYWsQ1BfkbSgJqa3kkZAGtUj6XkC/YOuMIrcM1imbOCzNBRiOwMu7MwEjgbni7GoaJax+3Q9XAMtarSwzdwiIoiLiXNsBqRd9THUXv4G5qaKDht1pZzbyvcYPJbPbFknIG8duVW8M/mZ1ych5CxokC/1WWqw97+f43oDP6K8ef049sn0dPwRZhFAXcRF8KG8A9Dp/U8osnPs4jSCvLhR7r+bG0oDti2hS8NXncwBMrh7/dncC+Y/hR2ECYhja5mIcghrBqdZHeiR6VCqm6S6fls6SUiBWyQvECG3s723qzRGP6lDcUkv97nGaNLQCLgv4NTVg+oPPdgfntnnz2hZcNFC9/CxE+ukQWhpWtxp2N3Z5K+DiFT+dqqudzitRZekQC2Doh+fJizXvU2r6shFc6+RIxxRE0k6qcLJgIW5qpL8ANgvKa0ee192aJ4cQaExMpeocPMZ9xEg7i1dhTHMtw5pUSQQHg4zEmYasEMGCk+qzVhIhcSYveiSAvqd4bjTSWnqwrtQALh5UgNMmQ/OIQepkhr7PU5gzllQo+hjtiw5GH8v4RiMJ6v+DcrFCOL3KmNToN+zTv3LN8a8l4t+nNHJ6LLS/GnyDCc2SiU/7YI0yKtaerWlYPiRIFvfjZ17q3+iU9W7GTbNa6iExy8Qn7+Nkgzak9tvlOAzdKJ8UP1sSh86Cr41SX6Yp/V26k7eE3S2L16bKRRZSPfQtuIhjged5b4ypOY7NE8X8HvOCvqwe8QK9cFQPGXJQbKb2HrLV3X6XgG1UvXB4a5iQGzBgV7zDzciD06dEy652XNz1HQDVT27vHNc+AlheLuTTBg4OBpnIMip/aQRaDXnm/fbEAZS9V6DLZL8oKk9m34OFtiRFZtVDn5fDiO7u+ExIcUcw4WZAuyvEjfoetJ4d49pqVjfKapbLPnwgN0n38aqfYo9CVRrzpRToQIyxS4544WMsdP/665JvV4LkqqrGy8+aF0C/t2gykY98fsYAtiY20tDj71/nPa9/wepyHmjz3IjNPesmXH74u33t+/3Q+ZsqmJ8RtHMyqSXVqFBgDx4wC1vzMpKbjDh/SIV620vC6SMGRjWI8eh7KHF/IN4HVOnd3QqSy40njm2iO9vnEg+j3O+qkLl4afZ+vVUfMBuFCLefHZjNYrMCJaF9w0baD3Jl5I60vWykPp0inAwLzS4tUojLWiyHmoB1g0DQEp94xoWwqufO/tZXkSICqTyHxNMJfDVFsyB00hrnQUaTHDHp9s/HV4MRtlRgrXolL0SnpIlCy2Rz28VXn+8csr8oc/86UJZU5cQNpAwErbyRP/HTAAqbnaM3b+cPKG5QCh7wePRgOwttYCoiD1XBuK4QFR10="
         }
       },
-      "n": 26
+      "n": 27
+    },
+    {
+      "id": "locked-612177a9",
+      "title": "Locked lecture",
+      "series": "Locked",
+      "audio": "https://huggingface.co/datasets/arjun10g/papers-audio/resolve/9581c80954915c038821ba8f8a7726f784afbca3/locked/612177a9.mp3.enc",
+      "bytes": 21072182,
+      "duration": 1316.98,
+      "doc": null,
+      "bg": null,
+      "published": "2026-10-01",
+      "sha256": "e61bcc56279d18c7faa8e60ff56690d34556e8747c3698c2072b4e8061c9b5d7",
+      "locked": {
+        "v": 1,
+        "kdf": {
+          "name": "PBKDF2",
+          "hash": "SHA-256",
+          "iterations": 600000,
+          "salt": "qn9IzSCeT5i76BN7xgDINQ=="
+        },
+        "meta": {
+          "iv": "xA2jSEnkySF9hycj",
+          "ct": "qPiFK1pq0LdRjh/P14GO2as0kKdold9RHXR1zYskae+YE99i6mwaSeGGMmmnmBDIl2w3yWGhjzmxN/C9WxK7dBPSttqlRHA4ZORxGnf7cBzOsvVHvVvfEQEXjkgAf804PkvtCa2rNpJEogyIh9OIIX/GQnRy2Q9fM+KszWQcwBXlQEYbwIkiFfk+Pg94tauY5Rf4xcIRaGs/nhB4ESsOd+ROm9/k84ruO0h0/FkaD/RcT09BEDCY4T9x98qK+mRddNuAiooDL8Nkvr51LkIf55WYLh/vPbDk5Rv8rfWZdoWT94lKnSQgdX3k6OLqbWTrXRIx6MSjwL1BB1+iFX3ElkQc7f4F/lWSg0aXp6iVsIDfVRs7LuaaeRHTxvjcn2//723l6Z1fTTTY4Y97XFFcTRobzbUDWPS6Qx1fCy9f/b95q8ln9a1HFrHrj9AsshQZnYTvomdZn7odzBo2eimIycAXxEhoVoff1Sn9ajIW+CwEhkQobFvWFPYWs+rzDmX7Hw1Y99NPn2uySh1yiVxE1BBZa7ttxZUwl5QoK9vhD6bbImXB8tTpAMC16zuBPfkkEJPaRPEJAvX+kaWkTfBkrQuSniAeBDZMdHC9IIorb/UKXgRf5vpCv1yomHbZvSoQf2HFAwifKxgmvxAdUlkey9xPvKQX88PbhGMiOWyaJssPs81SH8Ze0rPIzZ7IM32x7ul9OxA2JuDyHtvV7ET4ZTDR9ldANtj6dLl1gNml048kwFthSc+l2Hf07JQJ0UO0xWybAIIHhFJbUBBlXZTVPBVweToInQcknvVy7FyQ8AwKOIEw0KMIut38eY8M/nt+8TB3EtZwzB/ZJAAxWHjhk/xtNhg9DDMQjx87h2gpqppSkMu8kSg12WHf+4/BOTDsKtYgNOXp+WEXTBBtJTgKjd9g3oIYl5UOgKJp9/qRxGXyigrTKjuZ4f0yEczyDbl8JgiFP9Ptor/ar2wGX2gDe8f7S0INg8u01UjcSs8PQEuTH+icujE8R2Oce+JWViwc+04y58EPwvWwVm7cT0hue0EtTSUCSc4DDAWaxfHI0XYcykVxbA0YBOi49X+6mJsXek7suCAwD2G/9Ysvu2Ovf8Dii+3ZxfCuCUPQZXP1Qzusu8ThIWfr24l4sWzwBRotmRgNwa66EQWU36JwcN3wAniDRcw37vJudQ/F8lXM6CXogRCdDY6wbBjC8F+0jMDDG9xVcGDqUPGo9c24ZykIf7VL3upWX5h2atUp2fjnXBkJ6pOy0zXIX/UG+hd/oL1mbgi5o5M0YPhLEBp36A0bQVh14AZ6JfSkEq6Uk2nN51F0fQlv6DkM8TgQPmPDXz7XW/hYFuSJBQkYn4a+Dzz4tpowaJ4Jou0r9SgK2sE6IEJB/3Y+L1KJqjfhBO8dxQ/WBQ=="
+        }
+      },
+      "n": 28
     }
   ]
 }
